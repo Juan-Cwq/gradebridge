@@ -107,7 +107,7 @@ export default function TeacherSidebar({ profile }: { profile: Profile }) {
           );
         })}
 
-        <form action={() => switchRole("student")}>
+        <form action={async () => { await switchRole("student"); }}>
           <button
             type="submit"
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-base-content/70 hover:bg-secondary/10 hover:text-secondary transition-all"

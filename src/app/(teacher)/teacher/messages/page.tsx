@@ -118,8 +118,8 @@ export default function TeacherMessagesPage() {
 
       const students: EnrolledStudent[] = (enrollmentsData || [])
         .map((e) => {
-          const student = e.user as { id: string; full_name: string | null } | null;
-          const cls = e.class as { name: string } | null;
+          const student = e.user as unknown as { id: string; full_name: string | null } | null;
+          const cls = e.class as unknown as { name: string } | null;
           if (!student) return null;
           return {
             id: student.id,

@@ -59,7 +59,7 @@ export default function StudentOnboarding() {
       return;
     }
 
-    const teacherProfile = classData.teacher as { full_name: string | null } | null;
+    const teacherProfile = classData.teacher as unknown as { full_name: string | null } | null;
     setClassInfo({
       name: classData.name,
       teacher: teacherProfile?.full_name || "Unknown Teacher",

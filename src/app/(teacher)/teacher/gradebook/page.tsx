@@ -86,7 +86,7 @@ export default function TeacherGradebookPage() {
 
       const studentsList: Student[] = (enrollmentsData || [])
         .map((e) => {
-          const user = e.user as { id: string; full_name: string | null } | null;
+          const user = e.user as unknown as { id: string; full_name: string | null } | null;
           if (!user) return null;
           return {
             id: user.id,

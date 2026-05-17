@@ -80,7 +80,7 @@ export default function JoinClassPage() {
         return;
       }
 
-      const teacherProfile = classData.teacher as { full_name: string | null } | null;
+      const teacherProfile = classData.teacher as unknown as { full_name: string | null } | null;
       setSuccess({
         className: classData.name,
         teacherName: teacherProfile?.full_name || "Unknown Teacher",

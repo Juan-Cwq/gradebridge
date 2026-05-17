@@ -87,8 +87,8 @@ export default function TeacherStudentsPage() {
 
     const enrolledStudents: EnrolledStudent[] = (enrollmentsData || [])
       .map((e) => {
-        const user = e.user as { id: string; full_name: string | null; email: string | null } | null;
-        const cls = e.class as { name: string } | null;
+        const user = e.user as unknown as { id: string; full_name: string | null; email: string | null } | null;
+        const cls = e.class as unknown as { name: string } | null;
         if (!user) return null;
         return {
           id: user.id,

@@ -138,7 +138,7 @@ export default function StudentAssignmentsPage() {
 
       const classIds = enrollments.map((e) => e.class_id);
       const uniqueClasses = enrollments
-        .map((e) => e.class as { id: string; name: string } | null)
+        .map((e) => e.class as unknown as { id: string; name: string } | null)
         .filter((c): c is { id: string; name: string } => c !== null);
       setClasses(uniqueClasses);
 
@@ -157,7 +157,7 @@ export default function StudentAssignmentsPage() {
         .eq("is_published", true)
         .order("due_date", { ascending: true });
 
-      setAssignments(assignmentsData || []);
+      setAssignments((assignmentsData as unknown as Assignment[]) || []);
       setLoading(false);
     };
 

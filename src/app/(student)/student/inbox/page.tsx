@@ -86,7 +86,7 @@ export default function StudentInboxPage() {
     const teachers: ClassTeacher[] = [];
     const classIds: string[] = [];
     enrollments?.forEach((e) => {
-      const cls = e.class as {
+      const cls = e.class as unknown as {
         id: string;
         name: string;
         color: string | null;
@@ -130,8 +130,8 @@ export default function StudentInboxPage() {
         .order("created_at", { ascending: false });
 
       announcements?.forEach((a) => {
-        const cls = a.class as { id: string; name: string; color: string | null } | null;
-        const teacher = a.teacher as { full_name: string | null } | null;
+        const cls = a.class as unknown as { id: string; name: string; color: string | null } | null;
+        const teacher = a.teacher as unknown as { full_name: string | null } | null;
         const status = statusMap.get(`announcement-${a.id}`);
 
         if (status?.is_deleted) return;
@@ -145,7 +145,7 @@ export default function StudentInboxPage() {
           sender: teacher?.full_name || "Teacher",
           senderInitials: teacher?.full_name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || "T",
           className: cls?.name || "",
-          classColor: cls?.color,
+          classColor: cls?.color || null,
           classId: cls?.id || "",
           createdAt: a.created_at,
           isRead: status?.is_read || false,
@@ -168,8 +168,8 @@ export default function StudentInboxPage() {
       .order("created_at", { ascending: false });
 
     messages?.forEach((m) => {
-      const cls = m.class as { id: string; name: string; color: string | null } | null;
-      const sender = m.sender as { id: string; full_name: string | null } | null;
+      const cls = m.class as unknown as { id: string; name: string; color: string | null } | null;
+      const sender = m.sender as unknown as { id: string; full_name: string | null } | null;
       const status = statusMap.get(`message-${m.id}`);
 
       if (status?.is_deleted) return;
@@ -183,7 +183,7 @@ export default function StudentInboxPage() {
         sender: sender?.full_name || "Unknown",
         senderInitials: sender?.full_name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || "?",
         className: cls?.name || "",
-        classColor: cls?.color,
+        classColor: cls?.color || null,
         classId: cls?.id || "",
         createdAt: m.created_at,
         isRead: status?.is_read ?? m.is_read ?? false,

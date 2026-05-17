@@ -90,7 +90,7 @@ export default function AITutorPage() {
       if (enrollments) {
         const classes = enrollments
           .map((e) => {
-            const cls = e.class as { name: string; subject: string | null } | null;
+            const cls = e.class as unknown as { name: string; subject: string | null } | null;
             return cls ? `${cls.name}${cls.subject ? ` (${cls.subject})` : ""}` : null;
           })
           .filter(Boolean);

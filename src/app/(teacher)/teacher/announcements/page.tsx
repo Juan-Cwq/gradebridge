@@ -120,7 +120,7 @@ export default function TeacherAnnouncementsPage() {
       .eq("teacher_id", user.id)
       .order("created_at", { ascending: false });
 
-    setAnnouncements(announcementsData || []);
+    setAnnouncements((announcementsData as unknown as Announcement[]) || []);
     setLoading(false);
   };
 
@@ -330,7 +330,7 @@ export default function TeacherAnnouncementsPage() {
         await supabase.from("notifications").insert(notifications);
       }
 
-      setAnnouncements([announcement, ...announcements]);
+      setAnnouncements([announcement as unknown as Announcement, ...announcements]);
       resetForm();
     }
     setSaving(false);
@@ -646,11 +646,11 @@ export default function TeacherAnnouncementsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03 }}
             >
+              <div onClick={() => setSelectedAnnouncement(announcement)}>
               <Card
                 className={`cursor-pointer hover:shadow-md transition-shadow ${
                   announcement.is_pinned ? "border-primary/30" : ""
                 }`}
-                onClick={() => setSelectedAnnouncement(announcement)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-4">
@@ -715,6 +715,7 @@ export default function TeacherAnnouncementsPage() {
                   </div>
                 </CardContent>
               </Card>
+              </div>
             </motion.div>
           ))}
         </div>

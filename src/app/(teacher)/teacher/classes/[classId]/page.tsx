@@ -104,7 +104,7 @@ export default function ClassDetailPage() {
 
       const enrolledStudents: EnrolledStudent[] = (enrollmentsData || [])
         .map((e) => {
-          const user = e.user as { id: string; full_name: string | null; email: string | null } | null;
+          const user = e.user as unknown as { id: string; full_name: string | null; email: string | null } | null;
           if (!user) return null;
           return {
             id: user.id,

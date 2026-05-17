@@ -60,7 +60,7 @@ export default function StudentGradesPage() {
       const grades: ClassGrade[] = [];
 
       for (const enrollment of enrollments) {
-        const cls = enrollment.class as {
+        const cls = enrollment.class as unknown as {
           id: string;
           name: string;
           color: string | null;

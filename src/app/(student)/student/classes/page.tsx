@@ -57,7 +57,7 @@ export default function StudentClassesPage() {
         .eq("user_id", user.id)
         .eq("is_active", true);
 
-      setClasses(data || []);
+      setClasses((data as unknown as EnrolledClass[]) || []);
       setLoading(false);
     };
 
