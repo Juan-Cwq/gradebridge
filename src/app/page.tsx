@@ -1,8 +1,7 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
-import { useRef } from "react";
 import {
   Zap,
   Clock,
@@ -36,27 +35,10 @@ const staggerContainer = {
   },
 };
 
-const scaleIn = {
-  initial: { opacity: 0, scale: 0.9 },
-  animate: { opacity: 1, scale: 1 },
-  transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-};
-
-function FloatingOrb({ className, delay = 0 }: { className: string; delay?: number }) {
+function FloatingOrb({ className }: { className: string }) {
   return (
-    <motion.div
-      className={`absolute rounded-full blur-3xl ${className}`}
-      animate={{
-        y: [0, -30, 0],
-        x: [0, 15, 0],
-        scale: [1, 1.1, 1],
-      }}
-      transition={{
-        duration: 8,
-        repeat: Infinity,
-        ease: "easeInOut",
-        delay,
-      }}
+    <div
+      className={`absolute rounded-full blur-3xl animate-float-slow pointer-events-none ${className}`}
     />
   );
 }
@@ -75,15 +57,6 @@ function TrustBadge({ name }: { name: string }) {
 }
 
 export default function LandingPage() {
-  const heroRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ["start start", "end start"],
-  });
-  
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 150]);
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
-
   const trustBadges = [
     "FERPA Compliant",
     "SOC 2 Certified",
@@ -99,22 +72,18 @@ export default function LandingPage() {
 
       <main className="flex-1">
         {/* Hero Section */}
-        <section ref={heroRef} className="relative min-h-[90vh] flex items-center overflow-hidden">
+        <section className="relative min-h-[90vh] flex items-center overflow-hidden">
           {/* Animated Background */}
           <div className="absolute inset-0 mesh-bg" />
           
-          {/* Floating Orbs */}
-          <FloatingOrb className="w-[600px] h-[600px] bg-brand-innovation/20 -top-40 -right-40" delay={0} />
-          <FloatingOrb className="w-[500px] h-[500px] bg-brand-trust/15 -bottom-20 -left-20" delay={2} />
-          <FloatingOrb className="w-[300px] h-[300px] bg-brand-depth/10 top-1/2 right-1/4" delay={4} />
+          {/* Floating Orbs - CSS animations for better performance */}
+          <FloatingOrb className="w-[600px] h-[600px] bg-brand-innovation/20 -top-40 -right-40" />
+          <FloatingOrb className="w-[500px] h-[500px] bg-brand-trust/15 -bottom-20 -left-20 [animation-delay:2s]" />
           
           {/* Grid Pattern */}
           <div className="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:60px_60px]" />
 
-          <motion.div
-            style={{ y: heroY, opacity: heroOpacity }}
-            className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28"
-          >
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
             <motion.div
               className="max-w-4xl mx-auto text-center"
               initial="initial"
@@ -198,7 +167,7 @@ export default function LandingPage() {
                 </div>
               </motion.div>
             </motion.div>
-          </motion.div>
+          </div>
 
         </section>
 
@@ -294,7 +263,7 @@ export default function LandingPage() {
 
         {/* Features Section */}
         <section id="features" className="py-24 relative overflow-hidden">
-          <FloatingOrb className="w-[400px] h-[400px] bg-brand-trust/10 top-0 right-0" delay={1} />
+          <FloatingOrb className="w-[400px] h-[400px] bg-brand-trust/10 top-0 right-0 [animation-delay:1s]" />
           
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <motion.div
@@ -472,7 +441,7 @@ export default function LandingPage() {
 
         {/* Testimonial */}
         <section className="py-24 relative overflow-hidden">
-          <FloatingOrb className="w-[500px] h-[500px] bg-brand-innovation/10 -bottom-40 -left-40" delay={3} />
+          <FloatingOrb className="w-[500px] h-[500px] bg-brand-innovation/10 -bottom-40 -left-40 [animation-delay:3s]" />
           
           <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <motion.div
@@ -650,7 +619,7 @@ export default function LandingPage() {
 
         {/* Final CTA */}
         <section className="py-24 relative overflow-hidden">
-          <FloatingOrb className="w-[600px] h-[600px] bg-brand-innovation/15 top-0 left-1/2 -translate-x-1/2" delay={0} />
+          <FloatingOrb className="w-[600px] h-[600px] bg-brand-innovation/15 top-0 left-1/2 -translate-x-1/2" />
           
           <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <motion.div
