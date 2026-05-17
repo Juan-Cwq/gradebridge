@@ -110,14 +110,14 @@ export default function SettingsPage() {
                 activeIntegration === integration.id && "ring-2 ring-primary"
               )}
             >
-              <CardContent
-                className="p-4"
-                onClick={() =>
-                  setActiveIntegration(
-                    activeIntegration === integration.id ? null : integration.id
-                  )
-                }
-              >
+              <CardContent className="p-4">
+                <div
+                  onClick={() =>
+                    setActiveIntegration(
+                      activeIntegration === integration.id ? null : integration.id
+                    )
+                  }
+                >
                 <div className="flex items-center gap-4">
                   <div
                     className={cn(
@@ -159,6 +159,7 @@ export default function SettingsPage() {
                       activeIntegration === integration.id && "rotate-90"
                     )}
                   />
+                </div>
                 </div>
 
                 {activeIntegration === integration.id && (
