@@ -86,7 +86,7 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   return { error: "Something went wrong. Please try again." };
 }
 
-export async function signIn(formData: FormData): Promise<AuthResult> {
+export async function signIn(formData: FormData): Promise<AuthResult & { redirectTo?: string }> {
   const supabase = await createClient();
 
   const email = formData.get("email") as string;
@@ -111,7 +111,8 @@ export async function signIn(formData: FormData): Promise<AuthResult> {
 
   const role = profile?.role || "student";
   const dashboardPath = role === "teacher" ? "/teacher" : "/student";
-  redirect(dashboardPath);
+  
+  return { success: true, redirectTo: dashboardPath };
 }
 
 export async function signInWithGoogle(role: "teacher" | "student") {

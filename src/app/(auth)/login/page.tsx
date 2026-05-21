@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -10,6 +11,7 @@ import { signIn } from "@/lib/auth/actions";
 import { createBrowserClient } from "@supabase/ssr";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,9 @@ export default function LoginPage() {
       const result = await signIn(data);
       if (result?.error) {
         setError(result.error);
+      } else if (result?.redirectTo) {
+        router.push(result.redirectTo);
+        router.refresh();
       }
     });
   };
