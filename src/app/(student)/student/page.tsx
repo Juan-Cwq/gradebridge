@@ -1,9 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import StudentDashboardClient from "@/components/student/StudentDashboardClient";
 
 export default async function StudentDashboard() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Check user role and redirect teachers to their dashboard
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role === "teacher") {
+    redirect("/teacher");
+  }
 
   const { data: enrollments } = await supabase
     .from("enrollments")

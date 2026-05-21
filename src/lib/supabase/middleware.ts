@@ -55,17 +55,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users from auth pages to their dashboard
+  // Redirect authenticated users from auth pages to student dashboard
+  // (the page will handle redirecting to correct dashboard based on role)
   if (user && isAuthRoute) {
-    // Get user's role from profile to redirect to correct dashboard
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
     const url = request.nextUrl.clone();
-    url.pathname = profile?.role === "teacher" ? "/teacher" : "/student";
+    url.pathname = "/student"; // Default redirect, page will fix if teacher
     return NextResponse.redirect(url);
   }
 
