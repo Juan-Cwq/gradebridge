@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -8,16 +9,36 @@ export async function GET(request: Request) {
   const origin = requestUrl.origin;
 
   if (code) {
-    const supabase = await createClient();
+    const cookieStore = await cookies();
+    
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          },
+        },
+      }
+    );
+
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error && data.user) {
+      // Check for existing profile
       const { data: existingProfile } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", data.user.id)
         .single();
 
+      // Create profile if it doesn't exist
       if (!existingProfile) {
         await supabase.from("profiles").upsert({
           id: data.user.id,
@@ -31,9 +52,18 @@ export async function GET(request: Request) {
 
       const userRole = existingProfile?.role || role;
       const dashboardPath = userRole === "teacher" ? "/teacher" : "/student";
-      return NextResponse.redirect(`${origin}${dashboardPath}`);
+      
+      // Use 307 redirect to preserve cookies
+      return NextResponse.redirect(`${origin}${dashboardPath}`, {
+        status: 307,
+      });
     }
+    
+    // Log error for debugging
+    console.error("Auth callback error:", error);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+  return NextResponse.redirect(`${origin}/login?error=auth_failed`, {
+    status: 307,
+  });
 }

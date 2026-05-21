@@ -45,15 +45,26 @@ export default function LoginPage() {
   };
 
   const handleGoogleSignIn = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    setError(null);
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
       },
     });
 
     if (error) {
       setError(error.message);
+    }
+    
+    // If we get here and no redirect happened, something went wrong
+    if (!data?.url) {
+      setError("Failed to initialize Google sign-in. Please try again.");
     }
   };
 
