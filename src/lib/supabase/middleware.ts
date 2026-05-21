@@ -37,24 +37,35 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users from dashboard to login
-  if (
-    !user &&
-    request.nextUrl.pathname.startsWith("/dashboard")
-  ) {
+  const pathname = request.nextUrl.pathname;
+  
+  // Protected routes that require authentication
+  const isProtectedRoute = 
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/teacher") ||
+    pathname.startsWith("/student");
+
+  // Auth routes (login, signup)
+  const isAuthRoute = pathname === "/login" || pathname === "/signup";
+
+  // Redirect unauthenticated users from protected routes to login
+  if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users from auth pages to dashboard
-  if (
-    user &&
-    (request.nextUrl.pathname === "/login" ||
-      request.nextUrl.pathname === "/signup")
-  ) {
+  // Redirect authenticated users from auth pages to their dashboard
+  if (user && isAuthRoute) {
+    // Get user's role from profile to redirect to correct dashboard
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = profile?.role === "teacher" ? "/teacher" : "/student";
     return NextResponse.redirect(url);
   }
 

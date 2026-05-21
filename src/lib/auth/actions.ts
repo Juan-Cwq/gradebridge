@@ -3,11 +3,29 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 export type AuthResult = {
   error?: string;
   success?: boolean;
 };
+
+function getSiteUrl(): string {
+  // First check for explicit env var
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL;
+  }
+  // Netlify provides this automatically
+  if (process.env.URL) {
+    return process.env.URL;
+  }
+  // Vercel provides this
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  // Fallback for local dev
+  return "http://localhost:3000";
+}
 
 export async function signUp(formData: FormData): Promise<AuthResult> {
   const supabase = await createClient();
@@ -27,7 +45,7 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
         role: role,
         school_code: schoolCode,
       },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?role=${role}`,
+      emailRedirectTo: `${getSiteUrl()}/auth/callback?role=${role}`,
     },
   });
 
@@ -102,7 +120,7 @@ export async function signInWithGoogle(role: "teacher" | "student") {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?role=${role}`,
+      redirectTo: `${getSiteUrl()}/auth/callback?role=${role}`,
       queryParams: {
         access_type: "offline",
         prompt: "consent",
