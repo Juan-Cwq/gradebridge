@@ -47,6 +47,13 @@ type QuizData = {
   timeLimit?: number;
 };
 
+type PriorSubmission = {
+  score: number;
+  total_points: number;
+  percentage: number;
+  submitted_at: string;
+};
+
 function parseQuizData(description: string | null): QuizData | null {
   if (!description) return null;
   try {
@@ -55,46 +62,37 @@ function parseQuizData(description: string | null): QuizData | null {
       return parsed as QuizData;
     }
   } catch {
-    // Not JSON format - try legacy text parsing
     const lines = description.split('\n');
     const questions: QuizQuestion[] = [];
     let currentQuestion: Partial<QuizQuestion> | null = null;
     let titleMatch = description.match(/Title:\s*(.+)/i);
-    
+
     for (const line of lines) {
       const questionMatch = line.match(/^(\d+)\.\s*(.+)/);
       const optionMatch = line.match(/^([A-D])\)\s*(.+)/i);
-      
+
       if (questionMatch) {
         if (currentQuestion && currentQuestion.question && currentQuestion.options) {
           questions.push(currentQuestion as QuizQuestion);
         }
-        currentQuestion = {
-          question: questionMatch[2],
-          options: [],
-          correctIndex: 0,
-        };
+        currentQuestion = { question: questionMatch[2], options: [], correctIndex: 0 };
       } else if (optionMatch && currentQuestion) {
         const optionText = optionMatch[2];
         const isCorrect = optionText.includes('✓') || optionText.includes('*');
         const cleanOption = optionText.replace(/[✓*]/g, '').trim();
-        
         if (isCorrect) {
           currentQuestion.correctIndex = currentQuestion.options?.length || 0;
         }
         currentQuestion.options = [...(currentQuestion.options || []), cleanOption];
       }
     }
-    
+
     if (currentQuestion && currentQuestion.question && currentQuestion.options && currentQuestion.options.length > 0) {
       questions.push(currentQuestion as QuizQuestion);
     }
-    
+
     if (questions.length > 0) {
-      return {
-        title: titleMatch ? titleMatch[1] : 'Quiz',
-        questions,
-      };
+      return { title: titleMatch ? titleMatch[1] : 'Quiz', questions };
     }
   }
   return null;
@@ -106,14 +104,17 @@ export default function StudentAssignmentsPage() {
   const [classFilter, setClassFilter] = useState<string>("all");
   const [classes, setClasses] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Quiz/Assignment viewing state
+
   const [viewingAssignment, setViewingAssignment] = useState<Assignment | null>(null);
   const [quizData, setQuizData] = useState<QuizData | null>(null);
   const [quizStarted, setQuizStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<(number | null)[]>([]);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [priorSubmission, setPriorSubmission] = useState<PriorSubmission | null>(null);
+  const [checkingSubmission, setCheckingSubmission] = useState(false);
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -167,37 +168,26 @@ export default function StudentAssignmentsPage() {
   const filteredAssignments = assignments.filter((a) => {
     const now = new Date();
     const dueDate = a.due_date ? new Date(a.due_date) : null;
-
     if (classFilter !== "all" && a.class?.id !== classFilter) return false;
-
-    if (filter === "upcoming") {
-      return dueDate && dueDate >= now;
-    } else if (filter === "past") {
-      return dueDate && dueDate < now;
-    }
+    if (filter === "upcoming") return dueDate && dueDate >= now;
+    if (filter === "past") return dueDate && dueDate < now;
     return true;
   });
 
   const getUrgencyBadge = (dueDate: string | null) => {
     if (!dueDate) return null;
-
     const due = new Date(dueDate);
     const now = new Date();
     const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-      return <span className="px-2 py-0.5 rounded-full bg-error/10 text-error text-xs font-medium">Past due</span>;
-    } else if (diffDays === 0) {
-      return <span className="px-2 py-0.5 rounded-full bg-error/10 text-error text-xs font-medium">Due today</span>;
-    } else if (diffDays <= 3) {
-      return <span className="px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs font-medium">Due in {diffDays} days</span>;
-    }
+    if (diffDays < 0) return <span className="px-2 py-0.5 rounded-full bg-error/10 text-error text-xs font-medium">Past due</span>;
+    if (diffDays === 0) return <span className="px-2 py-0.5 rounded-full bg-error/10 text-error text-xs font-medium">Due today</span>;
+    if (diffDays <= 3) return <span className="px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs font-medium">Due in {diffDays} days</span>;
     return <span className="px-2 py-0.5 rounded-full bg-base-300 text-base-content/60 text-xs font-medium">Due in {diffDays} days</span>;
   };
 
   const classColors = ["bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500", "bg-pink-500", "bg-teal-500"];
 
-  const openAssignment = (assignment: Assignment) => {
+  const openAssignment = async (assignment: Assignment) => {
     setViewingAssignment(assignment);
     const parsed = parseQuizData(assignment.description);
     setQuizData(parsed);
@@ -205,6 +195,27 @@ export default function StudentAssignmentsPage() {
     setCurrentQuestion(0);
     setSelectedAnswers(parsed ? new Array(parsed.questions.length).fill(null) : []);
     setQuizSubmitted(false);
+    setSubmitError(null);
+    setPriorSubmission(null);
+
+    if (parsed) {
+      setCheckingSubmission(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: existing } = await supabase
+          .from("quiz_submissions")
+          .select("score, total_points, percentage, submitted_at")
+          .eq("student_id", user.id)
+          .eq("assignment_id", assignment.id)
+          .maybeSingle();
+
+        if (existing) {
+          setPriorSubmission(existing as PriorSubmission);
+          setQuizSubmitted(true);
+        }
+      }
+      setCheckingSubmission(false);
+    }
   };
 
   const closeAssignment = () => {
@@ -212,6 +223,8 @@ export default function StudentAssignmentsPage() {
     setQuizData(null);
     setQuizStarted(false);
     setQuizSubmitted(false);
+    setPriorSubmission(null);
+    setSubmitError(null);
   };
 
   const startQuiz = () => {
@@ -226,15 +239,45 @@ export default function StudentAssignmentsPage() {
     setSelectedAnswers(newAnswers);
   };
 
-  const submitQuiz = () => {
-    setQuizSubmitted(true);
-  };
+  const submitQuiz = async () => {
+    if (!quizData || !viewingAssignment) return;
+    setSubmitting(true);
+    setSubmitError(null);
 
-  const resetQuiz = () => {
-    setQuizStarted(false);
-    setCurrentQuestion(0);
-    setSelectedAnswers(quizData ? new Array(quizData.questions.length).fill(null) : []);
-    setQuizSubmitted(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setSubmitError("You must be logged in to submit.");
+      setSubmitting(false);
+      return;
+    }
+
+    let correct = 0;
+    quizData.questions.forEach((q, i) => {
+      if (selectedAnswers[i] === q.correctIndex) correct++;
+    });
+    const total = quizData.questions.length;
+    const percentage = Math.round((correct / total) * 100);
+
+    const { error } = await supabase.from("quiz_submissions").insert({
+      student_id: user.id,
+      assignment_id: viewingAssignment.id,
+      score: correct,
+      total_points: total,
+      percentage,
+      answers: selectedAnswers,
+    });
+
+    if (error) {
+      if (error.code === "23505") {
+        setQuizSubmitted(true);
+      } else {
+        setSubmitError("Failed to save your score. Please try again.");
+      }
+    } else {
+      setQuizSubmitted(true);
+    }
+
+    setSubmitting(false);
   };
 
   const getScore = () => {
@@ -267,32 +310,18 @@ export default function StudentAssignmentsPage() {
 
       <div className="flex flex-wrap gap-4">
         <div className="flex gap-2">
-          <button
-            onClick={() => setFilter("all")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filter === "all" ? "bg-secondary text-secondary-content" : "bg-base-200 hover:bg-base-300"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setFilter("upcoming")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filter === "upcoming" ? "bg-secondary text-secondary-content" : "bg-base-200 hover:bg-base-300"
-            }`}
-          >
-            Upcoming
-          </button>
-          <button
-            onClick={() => setFilter("past")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filter === "past" ? "bg-secondary text-secondary-content" : "bg-base-200 hover:bg-base-300"
-            }`}
-          >
-            Past
-          </button>
+          {(["all", "upcoming", "past"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                filter === f ? "bg-secondary text-secondary-content" : "bg-base-200 hover:bg-base-300"
+              }`}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
         </div>
-
         <select
           value={classFilter}
           onChange={(e) => setClassFilter(e.target.value)}
@@ -311,9 +340,7 @@ export default function StudentAssignmentsPage() {
             <ClipboardList className="w-12 h-12 mx-auto text-base-content/30 mb-4" />
             <h3 className="font-semibold text-base-content mb-2">No assignments found</h3>
             <p className="text-sm text-base-content/60">
-              {classes.length === 0
-                ? "Join a class to see assignments"
-                : "No assignments match your filters"}
+              {classes.length === 0 ? "Join a class to see assignments" : "No assignments match your filters"}
             </p>
           </CardContent>
         </Card>
@@ -340,24 +367,16 @@ export default function StudentAssignmentsPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-base-content truncate">
-                          {assignment.name}
-                        </h3>
+                        <h3 className="font-medium text-base-content truncate">{assignment.name}</h3>
                         {assignment.category === "quiz" && (
-                          <span className="px-2 py-0.5 rounded-full bg-secondary/10 text-secondary text-xs font-medium">
-                            Quiz
-                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-secondary/10 text-secondary text-xs font-medium">Quiz</span>
                         )}
                       </div>
-                      <p className="text-sm text-base-content/60">
-                        {assignment.class?.name}
-                      </p>
+                      <p className="text-sm text-base-content/60">{assignment.class?.name}</p>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <p className="text-sm font-medium text-base-content">
-                          {assignment.points_possible} pts
-                        </p>
+                        <p className="text-sm font-medium text-base-content">{assignment.points_possible} pts</p>
                         {assignment.due_date && (
                           <p className="text-xs text-base-content/50">
                             {new Date(assignment.due_date).toLocaleDateString()}
@@ -397,27 +416,57 @@ export default function StudentAssignmentsPage() {
                   <h2 className="text-xl font-bold text-base-content">{viewingAssignment.name}</h2>
                   <p className="text-sm text-base-content/60">{viewingAssignment.class?.name}</p>
                 </div>
-                <button
-                  onClick={closeAssignment}
-                  className="p-2 hover:bg-base-200 rounded-lg transition-colors"
-                >
+                <button onClick={closeAssignment} className="p-2 hover:bg-base-200 rounded-lg transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Content */}
               <div className="p-6 overflow-y-auto max-h-[calc(90vh-160px)]">
-                {quizData ? (
+                {checkingSubmission ? (
+                  <div className="flex items-center justify-center h-40">
+                    <div className="loading loading-spinner loading-lg text-secondary"></div>
+                  </div>
+                ) : quizData ? (
                   <>
+                    {/* Already submitted — show prior score */}
+                    {quizSubmitted && priorSubmission && !quizStarted && (
+                      <div className="text-center py-8">
+                        <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                          priorSubmission.percentage >= 70 ? "bg-success/10" : "bg-error/10"
+                        }`}>
+                          <span className={`text-3xl font-bold ${
+                            priorSubmission.percentage >= 70 ? "text-success" : "text-error"
+                          }`}>
+                            {priorSubmission.percentage}%
+                          </span>
+                        </div>
+                        <h3 className="text-xl font-bold mb-1">Already Submitted</h3>
+                        <p className="text-base-content/60 mb-1">
+                          {priorSubmission.score} out of {priorSubmission.total_points} correct
+                        </p>
+                        <p className="text-sm text-base-content/40">
+                          Submitted {new Date(priorSubmission.submitted_at).toLocaleDateString("en-US", {
+                            month: "long", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
+                          })}
+                        </p>
+                        <p className="mt-4 text-sm text-base-content/50 italic">
+                          Quizzes can only be submitted once.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Start screen */}
                     {!quizStarted && !quizSubmitted && (
                       <div className="text-center py-8">
                         <div className="w-20 h-20 bg-secondary/10 rounded-full flex items-center justify-center mx-auto mb-6">
                           <Play className="w-10 h-10 text-secondary" />
                         </div>
                         <h3 className="text-2xl font-bold mb-2">{quizData.title || "Quiz"}</h3>
-                        <p className="text-base-content/60 mb-6">
+                        <p className="text-base-content/60 mb-2">
                           {quizData.questions.length} questions • {viewingAssignment.points_possible} points
                         </p>
+                        <p className="text-sm text-warning mb-6">You can only submit this quiz once.</p>
                         <button
                           onClick={startQuiz}
                           className="px-8 py-3 bg-secondary text-secondary-content rounded-xl font-semibold hover:bg-secondary/90 transition-colors"
@@ -427,9 +476,9 @@ export default function StudentAssignmentsPage() {
                       </div>
                     )}
 
+                    {/* Quiz in progress */}
                     {quizStarted && !quizSubmitted && (
                       <div>
-                        {/* Progress */}
                         <div className="mb-6">
                           <div className="flex justify-between text-sm text-base-content/60 mb-2">
                             <span>Question {currentQuestion + 1} of {quizData.questions.length}</span>
@@ -443,7 +492,6 @@ export default function StudentAssignmentsPage() {
                           </div>
                         </div>
 
-                        {/* Question */}
                         <div className="mb-6">
                           <h3 className="text-lg font-semibold mb-4">
                             {quizData.questions[currentQuestion].question}
@@ -466,7 +514,10 @@ export default function StudentAssignmentsPage() {
                           </div>
                         </div>
 
-                        {/* Navigation */}
+                        {submitError && (
+                          <p className="text-error text-sm mb-4 text-center">{submitError}</p>
+                        )}
+
                         <div className="flex justify-between">
                           <button
                             onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
@@ -476,14 +527,14 @@ export default function StudentAssignmentsPage() {
                             <ChevronLeft className="w-5 h-5" />
                             Previous
                           </button>
-                          
+
                           {currentQuestion === quizData.questions.length - 1 ? (
                             <button
                               onClick={submitQuiz}
-                              disabled={selectedAnswers.some(a => a === null)}
+                              disabled={selectedAnswers.some(a => a === null) || submitting}
                               className="px-6 py-2 bg-secondary text-secondary-content rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-secondary/90 transition-colors"
                             >
-                              Submit Quiz
+                              {submitting ? "Saving..." : "Submit Quiz"}
                             </button>
                           ) : (
                             <button
@@ -496,7 +547,6 @@ export default function StudentAssignmentsPage() {
                           )}
                         </div>
 
-                        {/* Question dots */}
                         <div className="flex justify-center gap-2 mt-6 pt-6 border-t border-base-200">
                           {quizData.questions.map((_, idx) => (
                             <button
@@ -517,9 +567,9 @@ export default function StudentAssignmentsPage() {
                       </div>
                     )}
 
-                    {quizSubmitted && (
+                    {/* Results after submitting this session */}
+                    {quizSubmitted && !priorSubmission && (
                       <div>
-                        {/* Score */}
                         <div className="text-center py-6 mb-6 border-b border-base-200">
                           <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 ${
                             getScore().percentage >= 70 ? "bg-success/10" : "bg-error/10"
@@ -533,16 +583,9 @@ export default function StudentAssignmentsPage() {
                           <p className="text-lg font-semibold">
                             {getScore().correct} out of {getScore().total} correct
                           </p>
-                          <button
-                            onClick={resetQuiz}
-                            className="mt-4 flex items-center gap-2 mx-auto px-4 py-2 text-secondary hover:bg-secondary/10 rounded-lg transition-colors"
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                            Try Again
-                          </button>
+                          <p className="text-sm text-success mt-1">Score saved</p>
                         </div>
 
-                        {/* Review */}
                         <h3 className="font-semibold mb-4">Review Answers</h3>
                         <div className="space-y-4">
                           {quizData.questions.map((q, idx) => {
@@ -562,7 +605,7 @@ export default function StudentAssignmentsPage() {
                                     <p className="text-sm">
                                       <span className="text-base-content/60">Your answer: </span>
                                       <span className={isCorrect ? "text-success" : "text-error"}>
-                                        {selectedAnswers[idx] !== null ? q.options[selectedAnswers[idx]] : "No answer"}
+                                        {selectedAnswers[idx] !== null ? q.options[selectedAnswers[idx]!] : "No answer"}
                                       </span>
                                     </p>
                                     {!isCorrect && (
@@ -572,9 +615,7 @@ export default function StudentAssignmentsPage() {
                                       </p>
                                     )}
                                     {q.explanation && (
-                                      <p className="text-sm mt-2 text-base-content/70 italic">
-                                        {q.explanation}
-                                      </p>
+                                      <p className="text-sm mt-2 text-base-content/70 italic">{q.explanation}</p>
                                     )}
                                   </div>
                                 </div>
@@ -586,23 +627,17 @@ export default function StudentAssignmentsPage() {
                     )}
                   </>
                 ) : (
-                  /* Regular assignment view */
                   <div>
                     <div className="flex items-center gap-4 mb-4 pb-4 border-b border-base-200">
                       <div className="flex items-center gap-2 text-sm text-base-content/60">
                         <Calendar className="w-4 h-4" />
                         {viewingAssignment.due_date
                           ? new Date(viewingAssignment.due_date).toLocaleDateString("en-US", {
-                              weekday: "long",
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
+                              weekday: "long", year: "numeric", month: "long", day: "numeric",
                             })
                           : "No due date"}
                       </div>
-                      <div className="text-sm font-medium">
-                        {viewingAssignment.points_possible} points
-                      </div>
+                      <div className="text-sm font-medium">{viewingAssignment.points_possible} points</div>
                     </div>
                     <div className="prose prose-sm max-w-none">
                       <p className="whitespace-pre-wrap">{viewingAssignment.description || "No description provided."}</p>
