@@ -85,12 +85,25 @@ export default function AIToolsPage() {
         }),
       });
 
-      const data = await res.json();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Request failed" }));
+        setResponse(`Error: ${data.error || "Failed to generate content."}`);
+        return;
+      }
 
-      if (data.error) {
-        setResponse(`Error: ${data.error}`);
-      } else {
-        setResponse(data.response);
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setResponse("An error occurred. Please try again.");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        setResponse(accumulated);
       }
     } catch (error) {
       setResponse("An error occurred. Please try again.");

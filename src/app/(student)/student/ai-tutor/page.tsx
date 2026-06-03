@@ -127,15 +127,29 @@ export default function AITutorPage() {
         }),
       });
 
-      const data = await res.json();
-
-      if (data.error) {
+      if (!res.ok || !res.body) {
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: `I'm sorry, I encountered an error. Please try again.` },
         ]);
-      } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
+        return;
+      }
+
+      // Add an empty assistant message we will progressively fill in
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content: accumulated };
+          return updated;
+        });
       }
     } catch (error) {
       setMessages((prev) => [

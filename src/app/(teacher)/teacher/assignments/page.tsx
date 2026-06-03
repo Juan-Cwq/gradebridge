@@ -441,27 +441,38 @@ Format your response in a clear, organized manner that a teacher can directly us
         }),
       });
 
-      const data = await response.json();
-      if (data.response) {
-        setAiResult(data.response);
-        
-        const titleMatch = data.response.match(/(?:^|\n)#?\s*(?:Title:?\s*)?([^\n]+)/i);
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => ({ error: "Request failed" }));
+        console.error("AI error:", data.error);
+        alert("Failed to generate assignment. Please try again.");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        setAiResult(accumulated);
+      }
+
+      if (accumulated) {
+        const titleMatch = accumulated.match(/(?:^|\n)#?\s*(?:Title:?\s*)?([^\n]+)/i);
         if (titleMatch) {
           setFormData((prev) => ({
             ...prev,
             name: titleMatch[1].replace(/[#*:]/g, "").trim().slice(0, 100),
-            description: data.response,
+            description: accumulated,
           }));
         } else {
           setFormData((prev) => ({
             ...prev,
             name: `${aiTopic} - ${template?.name}`,
-            description: data.response,
+            description: accumulated,
           }));
         }
-      } else if (data.error) {
-        console.error("AI error:", data.error);
-        alert("Failed to generate assignment. Please try again.");
       }
     } catch (error) {
       console.error("AI generation error:", error);

@@ -2,12 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 export async function POST(request: NextRequest) {
   try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: "AI is not configured. Missing ANTHROPIC_API_KEY." },
+        { status: 500 }
+      );
+    }
+
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -83,34 +93,57 @@ Format as a clear table or matrix structure.`;
 ${context ? `\nContext about the student's classes: ${context}` : ""}`;
     }
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    });
-
-    const responseText = message.content[0].type === "text" ? message.content[0].text : "";
-
     const contentType = isTeacher ? tool || "general" : "tutor_session";
+    const encoder = new TextEncoder();
+    let fullText = "";
 
-    await supabase.from("ai_content").insert({
-      user_id: user.id,
-      class_id: classId || null,
-      content_type: contentType,
-      title: prompt.slice(0, 100),
-      prompt: prompt,
-      content: { response: responseText },
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const messageStream = anthropic.messages.stream({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 2000,
+            system: systemPrompt,
+            messages: [{ role: "user", content: prompt }],
+          });
+
+          for await (const event of messageStream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              fullText += event.delta.text;
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+
+          // Persist the generation once complete (non-fatal if it fails)
+          try {
+            await supabase.from("ai_content").insert({
+              user_id: user.id,
+              class_id: classId || null,
+              content_type: contentType,
+              title: prompt.slice(0, 100),
+              prompt: prompt,
+              content: { response: fullText },
+            });
+          } catch (dbError) {
+            console.error("Failed to save AI content:", dbError);
+          }
+
+          controller.close();
+        } catch (error) {
+          console.error("AI streaming error:", error);
+          controller.error(error);
+        }
+      },
     });
 
-    return NextResponse.json({
-      response: responseText,
-      tool,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
     });
   } catch (error) {
     console.error("AI API Error:", error);

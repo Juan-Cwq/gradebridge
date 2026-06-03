@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -11,7 +10,6 @@ import { signIn } from "@/lib/auth/actions";
 import { createBrowserClient } from "@supabase/ssr";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +36,10 @@ export default function LoginPage() {
       if (result?.error) {
         setError(result.error);
       } else if (result?.redirectTo) {
-        router.push(result.redirectTo);
-        router.refresh();
+        // Use a hard navigation so the freshly-set auth cookies are sent with
+        // the request. router.push can race ahead of the cookie commit on
+        // serverless hosts, bouncing the user back to /login.
+        window.location.href = result.redirectTo;
       }
     });
   };
