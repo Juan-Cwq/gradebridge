@@ -413,8 +413,17 @@ export default function TeacherAssignmentsPage() {
     setAiGenerating(true);
     const selectedClass = classes.find((c) => c.id === formData.class_id);
     const template = AI_TEMPLATES.find((t) => t.id === aiTemplate);
+    const isQuiz = aiTemplate === "quiz";
 
-    const prompt = `Create a ${template?.name?.toLowerCase()} for the following:
+    const prompt = isQuiz
+      ? `Create a multiple-choice quiz.
+
+Subject/Class: ${selectedClass?.subject || selectedClass?.name || "General"}
+Grade Level: ${aiGradeLevel}
+Topic: ${aiTopic}
+
+Generate 8-10 well-crafted multiple-choice questions that assess understanding of this topic. Remember to respond with ONLY the JSON object.`
+      : `Create a ${template?.name?.toLowerCase()} for the following:
 
 Subject/Class: ${selectedClass?.subject || selectedClass?.name || "General"}
 Grade Level: ${aiGradeLevel}
@@ -425,7 +434,7 @@ Please provide:
 1. A clear, engaging title for the assignment (start with "Title: ")
 2. Detailed instructions for students
 3. Learning objectives
-4. ${aiTemplate === "quiz" ? "Questions with answer key" : aiTemplate === "project" ? "Rubric or grading criteria" : "Practice problems or activities"}
+4. ${aiTemplate === "project" ? "Rubric or grading criteria" : "Practice problems or activities"}
 5. Suggested point value and time estimate
 
 Format your response in a clear, organized manner that a teacher can directly use or adapt.`;
@@ -436,7 +445,7 @@ Format your response in a clear, organized manner that a teacher can directly us
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          tool: aiTemplate === "quiz" ? "quiz" : "lesson-plan",
+          tool: isQuiz ? "quiz" : "lesson-plan",
           classId: formData.class_id,
         }),
       });
@@ -458,21 +467,71 @@ Format your response in a clear, organized manner that a teacher can directly us
         setAiResult(accumulated);
       }
 
-      if (accumulated) {
-        const titleMatch = accumulated.match(/(?:^|\n)#?\s*(?:Title:?\s*)?([^\n]+)/i);
-        if (titleMatch) {
-          setFormData((prev) => ({
-            ...prev,
-            name: titleMatch[1].replace(/[#*:]/g, "").trim().slice(0, 100),
-            description: accumulated,
-          }));
-        } else {
-          setFormData((prev) => ({
-            ...prev,
-            name: `${aiTopic} - ${template?.name}`,
-            description: accumulated,
-          }));
+      if (!accumulated) return;
+
+      if (isQuiz) {
+        // Quiz responses are strict JSON. Strip any accidental code fences,
+        // parse, validate, and store the clean JSON as the description so the
+        // student player can render selectable, auto-graded questions.
+        const cleaned = accumulated
+          .trim()
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/i, "")
+          .trim();
+
+        try {
+          const parsed = JSON.parse(cleaned);
+          if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+            const title = (parsed.title || `${aiTopic} Quiz`).toString().slice(0, 100);
+            setFormData((prev) => ({
+              ...prev,
+              name: title,
+              description: JSON.stringify(parsed),
+              category: "quiz",
+              points_possible: parsed.questions.length,
+            }));
+            const preview = `**${title}**\n\n${parsed.questions
+              .map(
+                (q: { question: string; options: string[]; correctIndex: number }, i: number) =>
+                  `${i + 1}. ${q.question}\n${q.options
+                    .map(
+                      (o, oi) =>
+                        `   ${String.fromCharCode(65 + oi)}. ${o}${
+                          oi === q.correctIndex ? "  ✓" : ""
+                        }`
+                    )
+                    .join("\n")}`
+              )
+              .join("\n\n")}`;
+            setAiResult(preview);
+            return;
+          }
+        } catch (parseErr) {
+          console.error("Quiz JSON parse failed:", parseErr);
         }
+        // Fallback: store raw text if JSON parsing failed
+        setFormData((prev) => ({
+          ...prev,
+          name: `${aiTopic} Quiz`,
+          description: accumulated,
+          category: "quiz",
+        }));
+        return;
+      }
+
+      const titleMatch = accumulated.match(/(?:^|\n)#?\s*(?:Title:?\s*)?([^\n]+)/i);
+      if (titleMatch) {
+        setFormData((prev) => ({
+          ...prev,
+          name: titleMatch[1].replace(/[#*:]/g, "").trim().slice(0, 100),
+          description: accumulated,
+        }));
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          name: `${aiTopic} - ${template?.name}`,
+          description: accumulated,
+        }));
       }
     } catch (error) {
       console.error("AI generation error:", error);

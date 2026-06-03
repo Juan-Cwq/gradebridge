@@ -54,13 +54,28 @@ export async function POST(request: NextRequest) {
 Format the output in a clear, organized structure.`;
           break;
         case "quiz":
-          systemPrompt = `You are an expert assessment creator. Generate quizzes that:
-- Include a mix of question types (multiple choice, short answer, true/false)
-- Cover key concepts thoroughly
-- Include answer keys with explanations
-- Are appropriate for the specified grade level
-- Assess both recall and critical thinking
-Format questions clearly with numbering and include the answer key at the end.`;
+          systemPrompt = `You are an expert assessment creator. Generate a multiple-choice quiz as STRICT, VALID JSON only. Do NOT include markdown, code fences, or any commentary before or after the JSON.
+
+The JSON must match this exact schema:
+{
+  "title": "Concise quiz title",
+  "questions": [
+    {
+      "question": "The full question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanation": "Brief explanation of why the correct answer is right"
+    }
+  ]
+}
+
+Rules:
+- Every question MUST have exactly 4 options.
+- "correctIndex" is the 0-based index (0-3) of the correct option in the "options" array.
+- Do NOT put letter prefixes like "A)" or markers like "*" inside the option text.
+- Generate 8-10 questions unless the user specifies a different number.
+- Make questions appropriate for the specified grade level and assess real understanding.
+- Output ONLY the raw JSON object. The very first character must be "{" and the very last character must be "}".`;
           break;
         case "differentiation":
           systemPrompt = `You are an expert in differentiated instruction. Help teachers adapt content by providing:

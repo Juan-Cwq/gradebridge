@@ -57,7 +57,12 @@ type PriorSubmission = {
 function parseQuizData(description: string | null): QuizData | null {
   if (!description) return null;
   try {
-    const parsed = JSON.parse(description);
+    const cleaned = description
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
     if (parsed.questions && Array.isArray(parsed.questions)) {
       return parsed as QuizData;
     }
