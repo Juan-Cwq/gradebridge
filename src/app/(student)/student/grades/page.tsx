@@ -86,22 +86,48 @@ export default function StudentGradesPage() {
         };
 
         if (assignments && assignments.length > 0) {
+          // Fetch this student's grades for the class assignments
+          const { data: gradeRows } = await supabase
+            .from("grades")
+            .select("assignment_id, points_earned, percentage")
+            .eq("student_id", user.id)
+            .in("assignment_id", assignments.map((a) => a.id));
+
+          const gradeMap = new Map<string, { points_earned: number | null; percentage: number | null }>();
+          gradeRows?.forEach((g) => {
+            gradeMap.set(g.assignment_id, {
+              points_earned: g.points_earned,
+              percentage: g.percentage,
+            });
+          });
+
           let totalEarned = 0;
           let totalPossible = 0;
 
           for (const assignment of assignments) {
+            const grade = gradeMap.get(assignment.id);
+            const pointsEarned = grade?.points_earned ?? null;
+            const pct =
+              pointsEarned !== null && assignment.points_possible > 0
+                ? (pointsEarned / assignment.points_possible) * 100
+                : null;
+
             classGrade.assignments.push({
               id: assignment.id,
               name: assignment.name,
-              pointsEarned: null,
+              pointsEarned,
               pointsPossible: assignment.points_possible,
-              percentage: null,
-              letterGrade: null,
+              percentage: pct,
+              letterGrade: pct !== null ? getLetterGrade(pct) : null,
             });
-            totalPossible += assignment.points_possible;
+
+            if (pointsEarned !== null) {
+              totalEarned += pointsEarned;
+              totalPossible += assignment.points_possible;
+            }
           }
 
-          if (totalPossible > 0 && totalEarned > 0) {
+          if (totalPossible > 0) {
             classGrade.average = (totalEarned / totalPossible) * 100;
             classGrade.letterGrade = getLetterGrade(classGrade.average);
           }
@@ -111,11 +137,20 @@ export default function StudentGradesPage() {
       }
 
       setClassGrades(grades);
+      if (grades.length > 0) {
+        setSelectedClass(grades[0].classId);
+      }
       setLoading(false);
     };
 
     fetchGrades();
   }, [supabase]);
+
+  const gradedClasses = classGrades.filter((c) => c.average !== null);
+  const overallAverage =
+    gradedClasses.length > 0
+      ? gradedClasses.reduce((sum, c) => sum + (c.average || 0), 0) / gradedClasses.length
+      : null;
 
   const getLetterGrade = (percentage: number): string => {
     if (percentage >= 90) return "A";
@@ -151,9 +186,27 @@ export default function StudentGradesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-display font-bold text-base-content">My Grades</h1>
-        <p className="text-base-content/60">View your grades for all enrolled classes</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-base-content">My Grades</h1>
+          <p className="text-base-content/60">View your grades for all enrolled classes</p>
+        </div>
+        {overallAverage !== null && (
+          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-base-200">
+            <Award className="w-6 h-6 text-secondary" />
+            <div>
+              <p className="text-xs text-base-content/60 uppercase tracking-wide">Overall Average</p>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-base-content">
+                  {overallAverage.toFixed(1)}%
+                </span>
+                <span className={`px-2 py-0.5 rounded text-sm font-medium ${getGradeColor(getLetterGrade(overallAverage))}`}>
+                  {getLetterGrade(overallAverage)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {classGrades.length === 0 ? (

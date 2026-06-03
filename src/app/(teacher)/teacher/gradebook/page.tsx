@@ -237,6 +237,15 @@ export default function TeacherGradebookPage() {
     return (totalEarned / totalPossible) * 100;
   };
 
+  const calculateClassAverage = (): number | null => {
+    const studentAverages = students
+      .map((s) => calculateStudentAverage(s.id))
+      .filter((avg): avg is number => avg !== null);
+
+    if (studentAverages.length === 0) return null;
+    return studentAverages.reduce((sum, avg) => sum + avg, 0) / studentAverages.length;
+  };
+
   const getLetterGrade = (percentage: number | null): string => {
     if (percentage === null) return "--";
     if (percentage >= 90) return "A";
@@ -355,6 +364,36 @@ export default function TeacherGradebookPage() {
             </Card>
           )}
 
+          {assignments.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-base-content/60">Class Average</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-2xl font-bold text-base-content">
+                      {calculateClassAverage() !== null ? `${calculateClassAverage()!.toFixed(1)}%` : "--"}
+                    </span>
+                    <span className={`text-lg font-bold ${getGradeColor(getLetterGrade(calculateClassAverage()))}`}>
+                      {getLetterGrade(calculateClassAverage())}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-base-content/60">Students</p>
+                  <p className="text-2xl font-bold text-base-content mt-1">{students.length}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-base-content/60">Assignments</p>
+                  <p className="text-2xl font-bold text-base-content mt-1">{assignments.length}</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           <Card>
             <CardHeader className="border-b border-base-300">
               <h2 className="font-semibold">Class Roster ({students.length} student{students.length !== 1 ? "s" : ""})</h2>
@@ -446,6 +485,37 @@ export default function TeacherGradebookPage() {
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-base-300 bg-base-200/60 font-medium">
+                        <td className="px-4 py-3 sticky left-0 bg-base-200/60 z-10">
+                          Class Average
+                        </td>
+                        {assignments.map((assignment) => {
+                          const scores = students
+                            .map((s) => grades.get(`${s.id}-${assignment.id}`))
+                            .filter((v): v is number => v !== null && v !== undefined);
+                          const avg =
+                            scores.length > 0
+                              ? (scores.reduce((sum, v) => sum + v, 0) / scores.length /
+                                  assignment.points_possible) *
+                                100
+                              : null;
+                          return (
+                            <td key={assignment.id} className="px-2 py-3 text-center text-sm">
+                              {avg !== null ? `${avg.toFixed(0)}%` : "--"}
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3 text-center">
+                          {calculateClassAverage() !== null
+                            ? `${calculateClassAverage()!.toFixed(1)}%`
+                            : "--"}
+                        </td>
+                        <td className={`px-4 py-3 text-center font-bold ${getGradeColor(getLetterGrade(calculateClassAverage()))}`}>
+                          {getLetterGrade(calculateClassAverage())}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}

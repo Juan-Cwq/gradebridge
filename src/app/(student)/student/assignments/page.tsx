@@ -25,6 +25,7 @@ type Assignment = {
   due_date: string | null;
   points_possible: number;
   category?: string;
+  max_attempts?: number | null;
   class: {
     id: string;
     name: string;
@@ -52,6 +53,7 @@ type PriorSubmission = {
   total_points: number;
   percentage: number;
   submitted_at: string;
+  attempt_number?: number;
 };
 
 function parseQuizData(description: string | null): QuizData | null {
@@ -120,6 +122,8 @@ export default function StudentAssignmentsPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [priorSubmission, setPriorSubmission] = useState<PriorSubmission | null>(null);
   const [checkingSubmission, setCheckingSubmission] = useState(false);
+  const [attemptsUsed, setAttemptsUsed] = useState(0);
+  const [maxAttempts, setMaxAttempts] = useState(1);
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -157,6 +161,7 @@ export default function StudentAssignmentsPage() {
           due_date,
           points_possible,
           category,
+          max_attempts,
           class:classes(id, name, color)
         `)
         .in("class_id", classIds)
@@ -202,21 +207,29 @@ export default function StudentAssignmentsPage() {
     setQuizSubmitted(false);
     setSubmitError(null);
     setPriorSubmission(null);
+    setAttemptsUsed(0);
+    setMaxAttempts(Math.max(1, assignment.max_attempts ?? 1));
 
     if (parsed) {
       setCheckingSubmission(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: existing } = await supabase
+        // Fetch all attempts; keep the best score for display and gradebook
+        const { data: submissions } = await supabase
           .from("quiz_submissions")
-          .select("score, total_points, percentage, submitted_at")
+          .select("score, total_points, percentage, submitted_at, attempt_number")
           .eq("student_id", user.id)
           .eq("assignment_id", assignment.id)
-          .maybeSingle();
+          .order("percentage", { ascending: false });
 
-        if (existing) {
-          setPriorSubmission(existing as PriorSubmission);
-          setQuizSubmitted(true);
+        if (submissions && submissions.length > 0) {
+          setAttemptsUsed(submissions.length);
+          const best = submissions[0] as PriorSubmission;
+          // If no attempts remain, lock with the best score shown
+          if (submissions.length >= Math.max(1, assignment.max_attempts ?? 1)) {
+            setPriorSubmission(best);
+            setQuizSubmitted(true);
+          }
         }
       }
       setCheckingSubmission(false);
@@ -262,6 +275,7 @@ export default function StudentAssignmentsPage() {
     });
     const total = quizData.questions.length;
     const percentage = Math.round((correct / total) * 100);
+    const thisAttempt = attemptsUsed + 1;
 
     const { error } = await supabase.from("quiz_submissions").insert({
       student_id: user.id,
@@ -270,19 +284,64 @@ export default function StudentAssignmentsPage() {
       total_points: total,
       percentage,
       answers: selectedAnswers,
+      attempt_number: thisAttempt,
     });
 
     if (error) {
-      if (error.code === "23505") {
-        setQuizSubmitted(true);
-      } else {
-        setSubmitError("Failed to save your score. Please try again.");
-      }
-    } else {
-      setQuizSubmitted(true);
+      setSubmitError("Failed to save your score. Please try again.");
+      setSubmitting(false);
+      return;
     }
 
+    setAttemptsUsed(thisAttempt);
+
+    // Record/refresh the gradebook grade using the best score across attempts.
+    const pointsPossible = viewingAssignment.points_possible || total;
+    const bestPercentage = priorSubmission
+      ? Math.max(priorSubmission.percentage, percentage)
+      : percentage;
+    const pointsEarned = Math.round((bestPercentage / 100) * pointsPossible);
+
+    try {
+      const { data: existingGrade } = await supabase
+        .from("grades")
+        .select("id")
+        .eq("student_id", user.id)
+        .eq("assignment_id", viewingAssignment.id)
+        .maybeSingle();
+
+      const gradePayload = {
+        points_earned: pointsEarned,
+        percentage: bestPercentage,
+        status: "graded",
+        submitted_at: new Date().toISOString(),
+        graded_at: new Date().toISOString(),
+      };
+
+      if (existingGrade) {
+        await supabase.from("grades").update(gradePayload).eq("id", existingGrade.id);
+      } else {
+        await supabase.from("grades").insert({
+          student_id: user.id,
+          assignment_id: viewingAssignment.id,
+          ...gradePayload,
+        });
+      }
+    } catch (gradeErr) {
+      console.error("Failed to record grade:", gradeErr);
+    }
+
+    setQuizSubmitted(true);
     setSubmitting(false);
+  };
+
+  const retakeQuiz = () => {
+    if (!quizData) return;
+    setSelectedAnswers(new Array(quizData.questions.length).fill(null));
+    setCurrentQuestion(0);
+    setQuizSubmitted(false);
+    setQuizStarted(true);
+    setSubmitError(null);
   };
 
   const getScore = () => {
@@ -446,7 +505,9 @@ export default function StudentAssignmentsPage() {
                             {priorSubmission.percentage}%
                           </span>
                         </div>
-                        <h3 className="text-xl font-bold mb-1">Already Submitted</h3>
+                        <h3 className="text-xl font-bold mb-1">
+                          {maxAttempts > 1 ? "Best Score" : "Already Submitted"}
+                        </h3>
                         <p className="text-base-content/60 mb-1">
                           {priorSubmission.score} out of {priorSubmission.total_points} correct
                         </p>
@@ -456,7 +517,9 @@ export default function StudentAssignmentsPage() {
                           })}
                         </p>
                         <p className="mt-4 text-sm text-base-content/50 italic">
-                          Quizzes can only be submitted once.
+                          {maxAttempts > 1
+                            ? `You've used all ${maxAttempts} attempts.`
+                            : "Quizzes can only be submitted once."}
                         </p>
                       </div>
                     )}
@@ -471,12 +534,16 @@ export default function StudentAssignmentsPage() {
                         <p className="text-base-content/60 mb-2">
                           {quizData.questions.length} questions • {viewingAssignment.points_possible} points
                         </p>
-                        <p className="text-sm text-warning mb-6">You can only submit this quiz once.</p>
+                        <p className="text-sm text-warning mb-6">
+                          {maxAttempts > 1
+                            ? `Attempt ${attemptsUsed + 1} of ${maxAttempts} — your highest score counts.`
+                            : "You can only submit this quiz once."}
+                        </p>
                         <button
                           onClick={startQuiz}
                           className="px-8 py-3 bg-secondary text-secondary-content rounded-xl font-semibold hover:bg-secondary/90 transition-colors"
                         >
-                          Start Quiz
+                          {attemptsUsed > 0 ? "Start Next Attempt" : "Start Quiz"}
                         </button>
                       </div>
                     )}
@@ -589,6 +656,19 @@ export default function StudentAssignmentsPage() {
                             {getScore().correct} out of {getScore().total} correct
                           </p>
                           <p className="text-sm text-success mt-1">Score saved</p>
+                          {attemptsUsed < maxAttempts ? (
+                            <button
+                              onClick={retakeQuiz}
+                              className="mt-4 flex items-center gap-2 mx-auto px-4 py-2 text-secondary hover:bg-secondary/10 rounded-lg transition-colors"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                              Try Again ({maxAttempts - attemptsUsed} {maxAttempts - attemptsUsed === 1 ? "attempt" : "attempts"} left)
+                            </button>
+                          ) : (
+                            <p className="mt-2 text-xs text-base-content/40">
+                              {maxAttempts > 1 ? "No attempts remaining." : ""}
+                            </p>
+                          )}
                         </div>
 
                         <h3 className="font-semibold mb-4">Review Answers</h3>

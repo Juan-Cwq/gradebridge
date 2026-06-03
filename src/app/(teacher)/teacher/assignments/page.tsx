@@ -38,6 +38,7 @@ type Assignment = {
   is_published: boolean | null;
   class_id: string;
   created_at: string;
+  max_attempts: number | null;
   class: { id: string; name: string; color: string | null } | null;
 };
 
@@ -118,6 +119,7 @@ export default function TeacherAssignmentsPage() {
     category: "homework",
     class_id: "",
     is_published: true,
+    max_attempts: 1,
   });
 
   const supabase = createBrowserClient(
@@ -144,7 +146,7 @@ export default function TeacherAssignmentsPage() {
         .from("assignments")
         .select(`
           id, name, description, points_possible, due_date, assigned_date,
-          category, is_published, class_id, created_at,
+          category, is_published, class_id, created_at, max_attempts,
           class:classes(id, name, color)
         `)
         .in("class_id", classIds)
@@ -182,6 +184,7 @@ export default function TeacherAssignmentsPage() {
       category: "homework",
       class_id: classes[0]?.id || "",
       is_published: true,
+      max_attempts: 1,
     });
     setEditingAssignment(null);
     setShowForm(true);
@@ -215,6 +218,7 @@ export default function TeacherAssignmentsPage() {
       category: formData.category,
       class_id: formData.class_id,
       is_published: formData.is_published,
+      max_attempts: formData.category === "quiz" ? Math.max(1, formData.max_attempts) : 1,
     };
     
     console.log("Inserting assignment:", insertData);
@@ -236,7 +240,7 @@ export default function TeacherAssignmentsPage() {
       .from("assignments")
       .select(`
         id, name, description, points_possible, due_date, assigned_date,
-        category, is_published, class_id, created_at,
+        category, is_published, class_id, created_at, max_attempts,
         class:classes(id, name, color)
       `)
       .eq("id", insertedData.id)
@@ -281,6 +285,7 @@ export default function TeacherAssignmentsPage() {
     if (!editingAssignment || !formData.name.trim()) return;
 
     setSaving(true);
+    const maxAttempts = formData.category === "quiz" ? Math.max(1, formData.max_attempts) : 1;
     const { error } = await supabase
       .from("assignments")
       .update({
@@ -291,6 +296,7 @@ export default function TeacherAssignmentsPage() {
         assigned_date: formData.assigned_date || null,
         category: formData.category,
         is_published: formData.is_published,
+        max_attempts: maxAttempts,
       })
       .eq("id", editingAssignment.id);
 
@@ -307,6 +313,7 @@ export default function TeacherAssignmentsPage() {
                 assigned_date: formData.assigned_date || null,
                 category: formData.category,
                 is_published: formData.is_published,
+                max_attempts: maxAttempts,
               }
             : a
         )
@@ -377,10 +384,11 @@ export default function TeacherAssignmentsPage() {
         category: assignment.category,
         class_id: assignment.class_id,
         is_published: false,
+        max_attempts: assignment.max_attempts ?? 1,
       })
       .select(`
         id, name, description, points_possible, due_date, assigned_date,
-        category, is_published, class_id, created_at,
+        category, is_published, class_id, created_at, max_attempts,
         class:classes(id, name, color)
       `)
       .single();
@@ -402,6 +410,7 @@ export default function TeacherAssignmentsPage() {
       category: assignment.category || "homework",
       class_id: assignment.class_id,
       is_published: assignment.is_published ?? true,
+      max_attempts: assignment.max_attempts ?? 1,
     });
     setShowForm(true);
     setShowAI(false);
@@ -897,6 +906,30 @@ Format your response in a clear, organized manner that a teacher can directly us
                     />
                   </div>
                 </div>
+
+                {formData.category === "quiz" && (
+                  <div className="rounded-lg border border-base-300 bg-base-200/40 p-4">
+                    <label className="block text-sm font-medium mb-1">Attempts Allowed</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={formData.max_attempts}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            max_attempts: Math.max(1, parseInt(e.target.value) || 1),
+                          })
+                        }
+                        className="w-24 px-4 py-2 rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <span className="text-sm text-base-content/60">
+                        How many times a student can take this quiz. The highest score counts.
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
