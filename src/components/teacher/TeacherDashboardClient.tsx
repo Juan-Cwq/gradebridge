@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -78,6 +78,11 @@ export default function TeacherDashboardClient({
   recentActivity: Activity[];
 }) {
   const [activeTab, setActiveTab] = useState<"classes" | "assignments" | "gradebook">("classes");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const getClassColor = (index: number) => classColors[index % classColors.length];
 
@@ -175,9 +180,11 @@ export default function TeacherDashboardClient({
                   ) : (
                     <>
                       {classes.map((cls, index) => {
-                        const pendingAssignments = cls.assignments.filter(
-                          (a) => a.is_published && a.due_date && new Date(a.due_date) < new Date()
-                        ).length;
+                        const pendingAssignments = mounted 
+                          ? cls.assignments.filter(
+                              (a) => a.is_published && a.due_date && new Date(a.due_date) < new Date()
+                            ).length
+                          : 0;
                         const studentCount = cls.enrollments.length;
 
                         return (
@@ -244,7 +251,7 @@ export default function TeacherDashboardClient({
                         </div>
                         <div className="text-right">
                           {assignment.due_date ? (
-                            <p className="text-sm text-base-content/60">
+                            <p className="text-sm text-base-content/60" suppressHydrationWarning>
                               Due {new Date(assignment.due_date).toLocaleDateString()}
                             </p>
                           ) : (
@@ -304,7 +311,7 @@ export default function TeacherDashboardClient({
                           submitted{" "}
                           <span className="font-medium">{activity.assignment?.name}</span>
                         </p>
-                        <p className="text-xs text-base-content/50">
+                        <p className="text-xs text-base-content/50" suppressHydrationWarning>
                           {activity.assignment?.class?.name} •{" "}
                           {new Date(activity.created_at).toLocaleString()}
                         </p>

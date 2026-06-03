@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -91,12 +91,17 @@ export default function StudentDashboardClient({
   announcements: Announcement[];
 }) {
   const [activeTab, setActiveTab] = useState<"todo" | "submitted" | "all">("todo");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const getClassColor = (color: string | null, index: number) => 
     color || classColors[index % classColors.length];
 
   const getUrgencyBadge = (dueDate: string | null) => {
-    if (!dueDate) return null;
+    if (!dueDate || !mounted) return null;
     
     const due = new Date(dueDate);
     const now = new Date();
@@ -110,9 +115,13 @@ export default function StudentDashboardClient({
     return <span className="px-2 py-0.5 rounded-full bg-base-300 text-base-content/60 text-xs font-medium">Due in {diffDays} days</span>;
   };
 
-  const upcomingAssignments = assignments
-    .filter((a) => a.due_date && new Date(a.due_date) >= new Date())
-    .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime());
+  const upcomingAssignments = mounted 
+    ? assignments
+        .filter((a) => a.due_date && new Date(a.due_date) >= new Date())
+        .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+    : assignments.filter((a) => a.due_date).sort((a, b) => 
+        new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime()
+      );
 
   return (
     <div className="space-y-6">
@@ -261,7 +270,7 @@ export default function StudentDashboardClient({
                             {assignment.points_possible} pts
                           </p>
                           {assignment.due_date && (
-                            <p className="text-xs text-base-content/50">
+                            <p className="text-xs text-base-content/50" suppressHydrationWarning>
                               Due {new Date(assignment.due_date).toLocaleDateString()}
                             </p>
                           )}
@@ -308,7 +317,7 @@ export default function StudentDashboardClient({
                         />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-base-content text-sm truncate">{announcement.title}</p>
-                          <p className="text-xs text-base-content/50">
+                          <p className="text-xs text-base-content/50" suppressHydrationWarning>
                             {announcement.class?.name} • {new Date(announcement.created_at).toLocaleDateString()}
                           </p>
                         </div>
