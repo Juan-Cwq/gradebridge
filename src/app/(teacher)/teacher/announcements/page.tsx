@@ -21,6 +21,7 @@ import {
   FileText,
   Music,
   Video,
+  Mail,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -64,6 +65,9 @@ export default function TeacherAnnouncementsPage() {
     is_pinned: false,
   });
   const [formAttachments, setFormAttachments] = useState<Attachment[]>([]);
+  const [sendEmail, setSendEmail] = useState(false);
+  const [manualEmails, setManualEmails] = useState("");
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -276,9 +280,51 @@ export default function TeacherAnnouncementsPage() {
       is_pinned: false,
     });
     setFormAttachments([]);
+    setSendEmail(false);
+    setManualEmails("");
     cancelRecording();
     setShowNewForm(false);
     setEditingAnnouncement(null);
+  };
+
+  const parseEmails = (raw: string): string[] =>
+    raw
+      .split(/[\s,;]+/)
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
+
+  const sendAnnouncementEmail = async (
+    classId: string,
+    subject: string,
+    message: string,
+    emailStudents: boolean,
+    manual: string[]
+  ) => {
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId,
+          subject,
+          message,
+          recipientIds: emailStudents ? undefined : [],
+          manualEmails: manual,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEmailStatus(data.error || "Failed to send emails.");
+        return;
+      }
+      setEmailStatus(
+        `Emailed ${data.sent} student${data.sent === 1 ? "" : "s"}${
+          data.failed > 0 ? ` (${data.failed} failed)` : ""
+        }.`
+      );
+    } catch {
+      setEmailStatus("Failed to send emails.");
+    }
   };
 
   const handleCreate = async () => {
@@ -330,8 +376,19 @@ export default function TeacherAnnouncementsPage() {
         await supabase.from("notifications").insert(notifications);
       }
 
+      const manual = parseEmails(manualEmails);
+      const shouldEmail = sendEmail || manual.length > 0;
+      const emailStudents = sendEmail;
+      const emailClassId = formData.class_id;
+      const emailSubject = formData.title.trim();
+      const emailBody = formData.content.trim();
+
       setAnnouncements([announcement as unknown as Announcement, ...announcements]);
       resetForm();
+
+      if (shouldEmail) {
+        await sendAnnouncementEmail(emailClassId, emailSubject, emailBody, emailStudents, manual);
+      }
     }
     setSaving(false);
   };
@@ -429,6 +486,18 @@ export default function TeacherAnnouncementsPage() {
           New Announcement
         </Button>
       </div>
+
+      {emailStatus && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+          <span className="flex items-center gap-2 text-base-content">
+            <Mail className="w-4 h-4 text-primary" />
+            {emailStatus}
+          </span>
+          <button onClick={() => setEmailStatus(null)} className="p-1 rounded hover:bg-base-200">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-4">
         <div className="relative flex-1 min-w-[200px]">
@@ -606,6 +675,34 @@ export default function TeacherAnnouncementsPage() {
                   />
                   <span className="text-sm">Pin this announcement</span>
                 </label>
+                {!editingAnnouncement && (
+                  <div className="space-y-2 rounded-lg border border-base-300 p-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sendEmail}
+                        onChange={(e) => setSendEmail(e.target.checked)}
+                        className="checkbox checkbox-primary checkbox-sm"
+                      />
+                      <span className="text-sm flex items-center gap-1.5">
+                        <Mail className="w-4 h-4 text-base-content/60" />
+                        Also email enrolled students (addresses on file)
+                      </span>
+                    </label>
+                    <div>
+                      <label className="block text-xs text-base-content/60 mb-1">
+                        Or email specific addresses (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualEmails}
+                        onChange={(e) => setManualEmails(e.target.value)}
+                        placeholder="someone@example.com, another@example.com"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-3 justify-end">
                   <Button variant="outline" onClick={resetForm}>
                     Cancel

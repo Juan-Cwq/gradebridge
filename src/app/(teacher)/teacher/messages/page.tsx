@@ -22,6 +22,7 @@ import {
   FileText,
   Music,
   Video,
+  Mail,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -78,6 +79,11 @@ export default function TeacherMessagesPage() {
   const [announcementClass, setAnnouncementClass] = useState("");
   const [announcementTitle, setAnnouncementTitle] = useState("");
   const [newMessageStudent, setNewMessageStudent] = useState("");
+  const [emailAnnouncement, setEmailAnnouncement] = useState(false);
+  const [emailNewMessage, setEmailNewMessage] = useState(false);
+  const [manualEmailsAnnouncement, setManualEmailsAnnouncement] = useState("");
+  const [manualEmailsNewMessage, setManualEmailsNewMessage] = useState("");
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -251,6 +257,40 @@ export default function TeacherMessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const parseEmails = (raw: string): string[] =>
+    raw
+      .split(/[\s,;]+/)
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
+
+  const sendEmail = async (
+    classId: string,
+    subject: string,
+    message: string,
+    recipientIds?: string[],
+    manualEmails?: string[]
+  ) => {
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId, subject, message, recipientIds, manualEmails }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEmailStatus(data.error || "Failed to send email.");
+        return;
+      }
+      setEmailStatus(
+        `Emailed ${data.sent} recipient${data.sent === 1 ? "" : "s"}${
+          data.failed > 0 ? ` (${data.failed} failed)` : ""
+        }.`
+      );
+    } catch {
+      setEmailStatus("Failed to send email.");
+    }
+  };
+
   const handleSendMessage = async (content: string, attachments: Attachment[]) => {
     if (!selectedConvo || !userId) return;
 
@@ -316,8 +356,21 @@ export default function TeacherMessagesPage() {
         }
         
         setSelectedConvo(newConvo);
+
+        const manual = parseEmails(manualEmailsNewMessage);
+        if (emailNewMessage || manual.length > 0) {
+          await sendEmail(
+            classId,
+            `New message from ${student.className}`,
+            content,
+            emailNewMessage ? [studentId] : [],
+            manual
+          );
+        }
       }
-      
+
+      setEmailNewMessage(false);
+      setManualEmailsNewMessage("");
       setShowNewMessage(false);
     }
   };
@@ -355,7 +408,20 @@ export default function TeacherMessagesPage() {
         await supabase.from("notifications").insert(notifications);
       }
 
+      const manual = parseEmails(manualEmailsAnnouncement);
+      if (emailAnnouncement || manual.length > 0) {
+        await sendEmail(
+          announcementClass,
+          announcementTitle.trim(),
+          content,
+          emailAnnouncement ? undefined : [],
+          manual
+        );
+      }
+
       setAnnouncementTitle("");
+      setEmailAnnouncement(false);
+      setManualEmailsAnnouncement("");
       setShowAnnouncement(false);
     }
   };
@@ -395,6 +461,18 @@ export default function TeacherMessagesPage() {
         </div>
       </div>
 
+      {emailStatus && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
+          <span className="flex items-center gap-2 text-base-content">
+            <Mail className="w-4 h-4 text-primary" />
+            {emailStatus}
+          </span>
+          <button onClick={() => setEmailStatus(null)} className="p-1 rounded hover:bg-base-200">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* New Message Modal */}
       <AnimatePresence>
         {showNewMessage && (
@@ -432,6 +510,32 @@ export default function TeacherMessagesPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-2 rounded-lg border border-base-300 p-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={emailNewMessage}
+                      onChange={(e) => setEmailNewMessage(e.target.checked)}
+                      className="checkbox checkbox-primary checkbox-sm"
+                    />
+                    <span className="text-sm flex items-center gap-1.5">
+                      <Mail className="w-4 h-4 text-base-content/60" />
+                      Also email this to the student&apos;s address on file
+                    </span>
+                  </label>
+                  <div>
+                    <label className="block text-xs text-base-content/60 mb-1">
+                      Or email specific addresses (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEmailsNewMessage}
+                      onChange={(e) => setManualEmailsNewMessage(e.target.value)}
+                      placeholder="student@example.com, parent@example.com"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
                 </div>
                 <MessageComposer
                   placeholder="Write your message..."
@@ -491,6 +595,32 @@ export default function TeacherMessagesPage() {
                     placeholder="Announcement title..."
                     className="w-full px-4 py-2 rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
                   />
+                </div>
+                <div className="space-y-2 rounded-lg border border-base-300 p-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={emailAnnouncement}
+                      onChange={(e) => setEmailAnnouncement(e.target.checked)}
+                      className="checkbox checkbox-primary checkbox-sm"
+                    />
+                    <span className="text-sm flex items-center gap-1.5">
+                      <Mail className="w-4 h-4 text-base-content/60" />
+                      Also email enrolled students (addresses on file)
+                    </span>
+                  </label>
+                  <div>
+                    <label className="block text-xs text-base-content/60 mb-1">
+                      Or email specific addresses (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEmailsAnnouncement}
+                      onChange={(e) => setManualEmailsAnnouncement(e.target.value)}
+                      placeholder="someone@example.com, another@example.com"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
                 </div>
                 <MessageComposer
                   placeholder="Write your announcement..."
