@@ -116,7 +116,7 @@ ${context ? `\nContext about the student's classes: ${context}` : ""}`;
       async start(controller) {
         try {
           const messageStream = anthropic.messages.stream({
-            model: "claude-sonnet-4-20250514",
+            model: "claude-sonnet-4-5-20250929",
             max_tokens: 2000,
             system: systemPrompt,
             messages: [{ role: "user", content: prompt }],
