@@ -112,12 +112,17 @@ ${context ? `\nContext about the student's classes: ${context}` : ""}`;
     const encoder = new TextEncoder();
     let fullText = "";
 
+    // Quizzes are compact JSON; full assignments/lesson plans/rubrics need much
+    // more room or they get cut off mid-sentence. Streaming keeps the response
+    // flowing so the larger budget doesn't trip serverless timeouts.
+    const maxTokens = tool === "quiz" ? 3000 : 6000;
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const messageStream = anthropic.messages.stream({
             model: "claude-sonnet-4-5-20250929",
-            max_tokens: 2000,
+            max_tokens: maxTokens,
             system: systemPrompt,
             messages: [{ role: "user", content: prompt }],
           });
