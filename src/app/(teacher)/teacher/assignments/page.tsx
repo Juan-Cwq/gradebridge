@@ -22,7 +22,10 @@ import {
   BookOpen,
   HelpCircle,
   Loader2,
+  ClipboardCheck,
+  Upload,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { createBrowserClient } from "@supabase/ssr";
@@ -39,6 +42,7 @@ type Assignment = {
   class_id: string;
   created_at: string;
   max_attempts: number | null;
+  submission_type: string | null;
   class: { id: string; name: string; color: string | null } | null;
 };
 
@@ -120,6 +124,7 @@ export default function TeacherAssignmentsPage() {
     class_id: "",
     is_published: true,
     max_attempts: 1,
+    submission_type: "none",
   });
 
   const supabase = createBrowserClient(
@@ -146,7 +151,7 @@ export default function TeacherAssignmentsPage() {
         .from("assignments")
         .select(`
           id, name, description, points_possible, due_date, assigned_date,
-          category, is_published, class_id, created_at, max_attempts,
+          category, is_published, class_id, created_at, max_attempts, submission_type,
           class:classes(id, name, color)
         `)
         .in("class_id", classIds)
@@ -185,6 +190,7 @@ export default function TeacherAssignmentsPage() {
       class_id: classes[0]?.id || "",
       is_published: true,
       max_attempts: 1,
+      submission_type: "none",
     });
     setEditingAssignment(null);
     setShowForm(true);
@@ -219,6 +225,7 @@ export default function TeacherAssignmentsPage() {
       class_id: formData.class_id,
       is_published: formData.is_published,
       max_attempts: formData.category === "quiz" ? Math.max(1, formData.max_attempts) : 1,
+      submission_type: formData.category === "quiz" ? "none" : formData.submission_type,
     };
     
     console.log("Inserting assignment:", insertData);
@@ -240,7 +247,7 @@ export default function TeacherAssignmentsPage() {
       .from("assignments")
       .select(`
         id, name, description, points_possible, due_date, assigned_date,
-        category, is_published, class_id, created_at, max_attempts,
+        category, is_published, class_id, created_at, max_attempts, submission_type,
         class:classes(id, name, color)
       `)
       .eq("id", insertedData.id)
@@ -297,6 +304,7 @@ export default function TeacherAssignmentsPage() {
         category: formData.category,
         is_published: formData.is_published,
         max_attempts: maxAttempts,
+        submission_type: formData.category === "quiz" ? "none" : formData.submission_type,
       })
       .eq("id", editingAssignment.id);
 
@@ -314,6 +322,7 @@ export default function TeacherAssignmentsPage() {
                 category: formData.category,
                 is_published: formData.is_published,
                 max_attempts: maxAttempts,
+                submission_type: formData.category === "quiz" ? "none" : formData.submission_type,
               }
             : a
         )
@@ -385,10 +394,11 @@ export default function TeacherAssignmentsPage() {
         class_id: assignment.class_id,
         is_published: false,
         max_attempts: assignment.max_attempts ?? 1,
+        submission_type: assignment.submission_type ?? "none",
       })
       .select(`
         id, name, description, points_possible, due_date, assigned_date,
-        category, is_published, class_id, created_at, max_attempts,
+        category, is_published, class_id, created_at, max_attempts, submission_type,
         class:classes(id, name, color)
       `)
       .single();
@@ -411,6 +421,7 @@ export default function TeacherAssignmentsPage() {
       class_id: assignment.class_id,
       is_published: assignment.is_published ?? true,
       max_attempts: assignment.max_attempts ?? 1,
+      submission_type: assignment.submission_type ?? "none",
     });
     setShowForm(true);
     setShowAI(false);
@@ -528,18 +539,27 @@ Format your response in a clear, organized manner that a teacher can directly us
         return;
       }
 
+      // Project template assignments are document-submission based: students
+      // upload a file that the teacher grades with annotations.
+      const projectExtras =
+        aiTemplate === "project"
+          ? { category: "project", submission_type: "file" }
+          : {};
+
       const titleMatch = accumulated.match(/(?:^|\n)#?\s*(?:Title:?\s*)?([^\n]+)/i);
       if (titleMatch) {
         setFormData((prev) => ({
           ...prev,
           name: titleMatch[1].replace(/[#*:]/g, "").trim().slice(0, 100),
           description: accumulated,
+          ...projectExtras,
         }));
       } else {
         setFormData((prev) => ({
           ...prev,
           name: `${aiTopic} - ${template?.name}`,
           description: accumulated,
+          ...projectExtras,
         }));
       }
     } catch (error) {
@@ -780,7 +800,16 @@ Format your response in a clear, organized manner that a teacher can directly us
                         <label className="block text-sm font-medium mb-1">Category</label>
                         <select
                           value={formData.category}
-                          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              category: e.target.value,
+                              submission_type:
+                                e.target.value === "project" && formData.submission_type === "none"
+                                  ? "file"
+                                  : formData.submission_type,
+                            })
+                          }
                           className="w-full px-4 py-2 rounded-lg border border-base-300 bg-base-100"
                         >
                           {ASSIGNMENT_CATEGORIES.map((cat) => (
@@ -878,7 +907,16 @@ Format your response in a clear, organized manner that a teacher can directly us
                       <label className="block text-sm font-medium mb-1">Category</label>
                       <select
                         value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            category: e.target.value,
+                            submission_type:
+                              e.target.value === "project" && formData.submission_type === "none"
+                                ? "file"
+                                : formData.submission_type,
+                          })
+                        }
                         className="w-full px-4 py-2 rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
                       >
                         {ASSIGNMENT_CATEGORIES.map((cat) => (
@@ -906,6 +944,23 @@ Format your response in a clear, organized manner that a teacher can directly us
                     />
                   </div>
                 </div>
+
+                {formData.category !== "quiz" && (
+                  <div className="rounded-lg border border-base-300 bg-base-200/40 p-4">
+                    <label className="block text-sm font-medium mb-1">Student Submission</label>
+                    <select
+                      value={formData.submission_type}
+                      onChange={(e) => setFormData({ ...formData, submission_type: e.target.value })}
+                      className="w-full md:w-80 px-4 py-2 rounded-lg border border-base-300 bg-base-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="none">No online submission (enter grades manually)</option>
+                      <option value="file">File / document upload (annotate &amp; grade)</option>
+                    </select>
+                    <p className="text-xs text-base-content/60 mt-2">
+                      Pick <span className="font-medium">File / document upload</span> for projects, essays, and worksheets. Students upload a PDF, image, or document that you can preview, mark up with comments &amp; highlights, and grade.
+                    </p>
+                  </div>
+                )}
 
                 {formData.category === "quiz" && (
                   <div className="rounded-lg border border-base-300 bg-base-200/40 p-4">
@@ -1009,6 +1064,12 @@ Format your response in a clear, organized manner that a teacher can directly us
                         <span className="px-2 py-0.5 rounded bg-base-200 text-base-content/70 text-xs capitalize">
                           {assignment.category?.replace("_", " ")}
                         </span>
+                        {assignment.submission_type === "file" && (
+                          <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-xs flex items-center gap-1">
+                            <Upload className="w-3 h-3" />
+                            File submission
+                          </span>
+                        )}
                         {getStatusBadge(assignment)}
                       </div>
                       <h3 className="font-semibold text-base-content text-lg">{assignment.name}</h3>
@@ -1036,6 +1097,15 @@ Format your response in a clear, organized manner that a teacher can directly us
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
+                      {assignment.submission_type === "file" && (
+                        <Link
+                          href={`/teacher/assignments/${assignment.id}`}
+                          className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                          title="Review & grade submissions"
+                        >
+                          <ClipboardCheck className="w-4 h-4" />
+                        </Link>
+                      )}
                       <button
                         onClick={() => handleTogglePublish(assignment)}
                         className={`p-2 rounded-lg hover:bg-base-200 transition-colors ${

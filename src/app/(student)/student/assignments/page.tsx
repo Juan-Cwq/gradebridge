@@ -1,22 +1,35 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import {
   ClipboardList,
   Calendar,
-  Filter,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
   X,
   ChevronLeft,
   ChevronRight,
   Play,
   RotateCcw,
+  Upload,
+  FileText,
+  CheckCircle2 as CheckCircle,
+  Loader2,
+  MessageSquare,
 } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Card, CardContent } from "@/components/ui/Card";
 import { createBrowserClient } from "@supabase/ssr";
+import type { Annotation } from "@/components/ui/DocumentAnnotator";
+
+const DocumentAnnotator = dynamic(() => import("@/components/ui/DocumentAnnotator"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-64 gap-2 text-base-content/60">
+      <Loader2 className="w-5 h-5 animate-spin" /> Loading viewer…
+    </div>
+  ),
+});
 
 type Assignment = {
   id: string;
@@ -26,11 +39,29 @@ type Assignment = {
   points_possible: number;
   category?: string;
   max_attempts?: number | null;
+  submission_type?: string | null;
   class: {
     id: string;
     name: string;
     color: string | null;
   } | null;
+};
+
+type FileSubmission = {
+  id: string;
+  file_url: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  status: string;
+  submitted_at: string;
+  text_content: string | null;
+};
+
+type MyGrade = {
+  points_earned: number | null;
+  percentage: number | null;
+  feedback: string | null;
+  status: string | null;
 };
 
 type QuizQuestion = {
@@ -125,6 +156,14 @@ export default function StudentAssignmentsPage() {
   const [attemptsUsed, setAttemptsUsed] = useState(0);
   const [maxAttempts, setMaxAttempts] = useState(1);
 
+  // File-submission (project) state
+  const [fileMode, setFileMode] = useState(false);
+  const [mySubmission, setMySubmission] = useState<FileSubmission | null>(null);
+  const [myGrade, setMyGrade] = useState<MyGrade | null>(null);
+  const [myAnnotations, setMyAnnotations] = useState<Annotation[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -162,6 +201,7 @@ export default function StudentAssignmentsPage() {
           points_possible,
           category,
           max_attempts,
+          submission_type,
           class:classes(id, name, color)
         `)
         .in("class_id", classIds)
@@ -197,18 +237,68 @@ export default function StudentAssignmentsPage() {
 
   const classColors = ["bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500", "bg-pink-500", "bg-teal-500"];
 
+  const loadFileSubmission = async (assignment: Assignment) => {
+    setCheckingSubmission(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setCheckingSubmission(false);
+      return;
+    }
+
+    const { data: sub } = await supabase
+      .from("submissions")
+      .select("id, file_url, file_name, file_type, status, submitted_at, text_content")
+      .eq("assignment_id", assignment.id)
+      .eq("student_id", user.id)
+      .maybeSingle();
+
+    setMySubmission((sub as FileSubmission) || null);
+
+    const { data: grade } = await supabase
+      .from("grades")
+      .select("points_earned, percentage, feedback, status")
+      .eq("assignment_id", assignment.id)
+      .eq("student_id", user.id)
+      .maybeSingle();
+
+    setMyGrade((grade as MyGrade) || null);
+
+    if (sub?.id) {
+      const { data: anns } = await supabase
+        .from("submission_annotations")
+        .select("id, page, x, y, width, height, type, color, body")
+        .eq("submission_id", sub.id);
+      setMyAnnotations((anns as Annotation[]) || []);
+    }
+
+    setCheckingSubmission(false);
+  };
+
   const openAssignment = async (assignment: Assignment) => {
     setViewingAssignment(assignment);
-    const parsed = parseQuizData(assignment.description);
-    setQuizData(parsed);
+    setFileMode(false);
+    setMySubmission(null);
+    setMyGrade(null);
+    setMyAnnotations([]);
+    setUploadError(null);
     setQuizStarted(false);
     setCurrentQuestion(0);
-    setSelectedAnswers(parsed ? new Array(parsed.questions.length).fill(null) : []);
     setQuizSubmitted(false);
     setSubmitError(null);
     setPriorSubmission(null);
     setAttemptsUsed(0);
     setMaxAttempts(Math.max(1, assignment.max_attempts ?? 1));
+
+    if (assignment.submission_type === "file") {
+      setFileMode(true);
+      setQuizData(null);
+      await loadFileSubmission(assignment);
+      return;
+    }
+
+    const parsed = assignment.category === "quiz" ? parseQuizData(assignment.description) : null;
+    setQuizData(parsed);
+    setSelectedAnswers(parsed ? new Array(parsed.questions.length).fill(null) : []);
 
     if (parsed) {
       setCheckingSubmission(true);
@@ -243,6 +333,79 @@ export default function StudentAssignmentsPage() {
     setQuizSubmitted(false);
     setPriorSubmission(null);
     setSubmitError(null);
+    setFileMode(false);
+    setMySubmission(null);
+    setMyGrade(null);
+    setMyAnnotations([]);
+    setUploadError(null);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !viewingAssignment) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      setUploadError("File is too large (max 25 MB).");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setUploadError("You must be logged in to submit.");
+      setUploading(false);
+      return;
+    }
+
+    const ext = file.name.split(".").pop() || "dat";
+    const path = `${viewingAssignment.id}/${user.id}/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.${ext}`;
+
+    const { data: uploaded, error: uploadErr } = await supabase.storage
+      .from("assignment-submissions")
+      .upload(path, file, { upsert: true });
+
+    if (uploadErr || !uploaded) {
+      setUploadError("Upload failed. Please try again.");
+      setUploading(false);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from("assignment-submissions")
+      .getPublicUrl(uploaded.path);
+
+    const row = {
+      assignment_id: viewingAssignment.id,
+      student_id: user.id,
+      file_path: uploaded.path,
+      file_url: urlData.publicUrl,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+    };
+
+    const { data: saved, error: saveErr } = await supabase
+      .from("submissions")
+      .upsert(row, { onConflict: "assignment_id,student_id" })
+      .select("id, file_url, file_name, file_type, status, submitted_at, text_content")
+      .single();
+
+    if (saveErr || !saved) {
+      setUploadError("Couldn't record your submission. Please try again.");
+      setUploading(false);
+      return;
+    }
+
+    setMySubmission(saved as FileSubmission);
+    setMyAnnotations([]);
+    setUploading(false);
+    e.target.value = "";
   };
 
   const startQuiz = () => {
@@ -435,6 +598,11 @@ export default function StudentAssignmentsPage() {
                         {assignment.category === "quiz" && (
                           <span className="px-2 py-0.5 rounded-full bg-secondary/10 text-secondary text-xs font-medium">Quiz</span>
                         )}
+                        {assignment.submission_type === "file" && (
+                          <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium flex items-center gap-1">
+                            <Upload className="w-3 h-3" /> Upload
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-base-content/60">{assignment.class?.name}</p>
                     </div>
@@ -471,7 +639,9 @@ export default function StudentAssignmentsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-base-100 rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden"
+              className={`bg-base-100 rounded-2xl shadow-xl w-full max-h-[90vh] overflow-hidden ${
+                fileMode ? "max-w-5xl" : "max-w-3xl"
+              }`}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -490,6 +660,138 @@ export default function StudentAssignmentsPage() {
                 {checkingSubmission ? (
                   <div className="flex items-center justify-center h-40">
                     <div className="loading loading-spinner loading-lg text-secondary"></div>
+                  </div>
+                ) : fileMode ? (
+                  <div className="space-y-5">
+                    <div className="flex items-center gap-4 pb-4 border-b border-base-200 text-sm text-base-content/60">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4" />
+                        {viewingAssignment.due_date
+                          ? new Date(viewingAssignment.due_date).toLocaleDateString("en-US", {
+                              month: "long", day: "numeric", year: "numeric",
+                            })
+                          : "No due date"}
+                      </span>
+                      <span className="font-medium text-base-content">
+                        {viewingAssignment.points_possible} points
+                      </span>
+                    </div>
+
+                    {viewingAssignment.description && (
+                      <div className="prose prose-sm max-w-none rounded-lg border border-base-200 bg-base-200/30 p-4 max-h-52 overflow-y-auto">
+                        <ReactMarkdown>{viewingAssignment.description}</ReactMarkdown>
+                      </div>
+                    )}
+
+                    {myGrade && myGrade.status === "graded" && (
+                      <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex items-start gap-4">
+                        <div className="w-16 h-16 rounded-full bg-success/10 flex flex-col items-center justify-center flex-shrink-0">
+                          <span className="text-xl font-bold text-success leading-none">
+                            {myGrade.points_earned ?? "--"}
+                          </span>
+                          <span className="text-[10px] text-base-content/50">
+                            / {viewingAssignment.points_possible}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-success">Graded</p>
+                          {myGrade.feedback ? (
+                            <p className="text-sm text-base-content/80 mt-1 whitespace-pre-wrap">
+                              {myGrade.feedback}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-base-content/50 mt-1 italic">
+                              No written feedback. See document comments below.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {mySubmission ? (
+                      <div className="rounded-xl border border-base-200 p-4">
+                        <div className="flex items-center gap-3">
+                          <FileText className="w-5 h-5 text-primary flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{mySubmission.file_name}</p>
+                            <p className="text-xs text-base-content/50">
+                              Submitted {new Date(mySubmission.submitted_at).toLocaleString()}
+                            </p>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-xs flex items-center gap-1 flex-shrink-0">
+                            <CheckCircle className="w-3 h-3" /> Submitted
+                          </span>
+                        </div>
+
+                        {myGrade?.status === "graded" && mySubmission.file_url && (
+                          <div className="mt-4">
+                            <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                              <MessageSquare className="w-4 h-4 text-primary" />
+                              Your teacher&apos;s marks on your document
+                              {myAnnotations.length > 0 && (
+                                <span className="text-xs text-base-content/50 font-normal">
+                                  ({myAnnotations.length})
+                                </span>
+                              )}
+                            </p>
+                            <div className="h-[55vh] rounded-lg border border-base-300 overflow-hidden">
+                              <DocumentAnnotator
+                                fileUrl={mySubmission.file_url}
+                                fileType={mySubmission.file_type}
+                                fileName={mySubmission.file_name}
+                                annotations={myAnnotations}
+                                editable={false}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {myGrade?.status !== "graded" && (
+                          <label className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-base-300 hover:bg-base-200 cursor-pointer text-sm">
+                            {uploading ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                            {uploading ? "Uploading…" : "Replace file"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              onChange={handleFileUpload}
+                              disabled={uploading}
+                              accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.ppt,.pptx,.txt"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-base-300 hover:border-primary/50 hover:bg-primary/5 transition-colors p-8 cursor-pointer text-center">
+                        {uploading ? (
+                          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        ) : (
+                          <Upload className="w-8 h-8 text-primary" />
+                        )}
+                        <div>
+                          <p className="font-medium">
+                            {uploading ? "Uploading…" : "Upload your submission"}
+                          </p>
+                          <p className="text-sm text-base-content/50">
+                            PDF, image, or document (max 25 MB)
+                          </p>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={handleFileUpload}
+                          disabled={uploading}
+                          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.ppt,.pptx,.txt"
+                        />
+                      </label>
+                    )}
+
+                    {uploadError && (
+                      <p className="text-error text-sm text-center">{uploadError}</p>
+                    )}
                   </div>
                 ) : quizData ? (
                   <>
