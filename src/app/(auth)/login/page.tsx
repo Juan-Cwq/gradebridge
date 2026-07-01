@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
@@ -20,8 +20,23 @@ export default function LoginPage() {
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    // Don't let the browser client auto-consume an OAuth code on this page —
+    // we forward it to the /auth/callback server route (below) so the PKCE
+    // exchange happens with the verifier cookie on this same domain.
+    { auth: { flowType: "pkce", detectSessionInUrl: false } }
   );
+
+  // If an OAuth provider bounced back here with a ?code= (e.g. Supabase fell
+  // back to the Site URL instead of honoring redirectTo), complete the sign-in
+  // on the server callback route on THIS domain rather than failing silently.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("code")) {
+      window.location.replace(`/auth/callback?${params.toString()}`);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
