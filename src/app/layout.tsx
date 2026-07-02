@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
-import OAuthCodeCatcher from "@/components/auth/OAuthCodeCatcher";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -49,10 +48,7 @@ export default function RootLayout({
       data-theme="light"
       className={`${inter.variable} ${dmSerifDisplay.variable}`}
     >
-      <body className="min-h-screen font-sans">
-        <OAuthCodeCatcher />
-        {children}
-      </body>
+      <body className="min-h-screen font-sans">{children}</body>
     </html>
   );
 }

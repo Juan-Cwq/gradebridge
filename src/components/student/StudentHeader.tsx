@@ -77,27 +77,19 @@ export default function StudentHeader({ profile }: { profile: Profile }) {
     };
   }, [profile.id, supabase]);
 
-  // Time-based values must be computed on the client only; deriving them
-  // during SSR causes a hydration mismatch (React error #418) when the
-  // server's clock/timezone differs from the browser's.
-  const [currentDate, setCurrentDate] = useState("");
-  const [greetingText, setGreetingText] = useState("");
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
-  useEffect(() => {
-    const now = new Date();
-    setCurrentDate(
-      now.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    );
-    const hour = now.getHours();
-    setGreetingText(
-      hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
-    );
-  }, []);
+  const greeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
 
   const initials = profile.full_name
     ?.split(" ")
@@ -124,10 +116,9 @@ export default function StudentHeader({ profile }: { profile: Profile }) {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-base-content">
-              {greetingText ? `${greetingText}, ` : ""}
-              {profile.full_name?.split(" ")[0] || "Student"}!
+              {greeting()}, {profile.full_name?.split(" ")[0] || "Student"}!
             </h1>
-            <p className="text-sm text-base-content/60">{currentDate || "\u00A0"}</p>
+            <p className="text-sm text-base-content/60">{currentDate}</p>
           </div>
         </div>
 
