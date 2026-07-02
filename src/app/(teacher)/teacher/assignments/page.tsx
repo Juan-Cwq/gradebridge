@@ -460,31 +460,74 @@ Please provide:
 Format your response in a clear, organized manner that a teacher can directly use or adapt.`;
 
     try {
-      const response = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          tool: isQuiz ? "quiz" : "lesson-plan",
-          classId: formData.class_id,
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        const data = await response.json().catch(() => ({ error: "Request failed" }));
-        console.error("AI error:", data.error);
-        alert("Failed to generate assignment. Please try again.");
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const toolName = isQuiz ? "quiz" : "lesson-plan";
+      const STOP_RE = /\n?<<<GB_STOP:(\w+)>>>\s*$/;
+      const MAX_ROUNDS = 8;
       let accumulated = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        accumulated += decoder.decode(value, { stream: true });
+      let complete = false;
+
+      // Continue-generation loop: each round streams a chunk, then we resend the
+      // text so far as an assistant prefill so the model picks up exactly where
+      // it left off. This recovers from both max_tokens and serverless time cutoffs.
+      for (let round = 0; round < MAX_ROUNDS && !complete; round++) {
+        const reqMessages = accumulated
+          ? [
+              { role: "user", content: prompt },
+              { role: "assistant", content: accumulated.replace(/\s+$/, "") },
+            ]
+          : [{ role: "user", content: prompt }];
+
+        const response = await fetch("/api/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: reqMessages,
+            tool: toolName,
+            classId: formData.class_id,
+          }),
+        });
+
+        if (!response.ok || !response.body) {
+          const data = await response.json().catch(() => ({ error: "Request failed" }));
+          console.error("AI error:", data.error);
+          if (round === 0) {
+            alert("Failed to generate assignment. Please try again.");
+            return;
+          }
+          break; // keep whatever we already have
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let callText = "";
+        let stopReason: string | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          callText += decoder.decode(value, { stream: true });
+          // Hide any (possibly partial) trailing stop sentinel while streaming.
+          const sIdx = callText.indexOf("<<<GB_STOP");
+          const shown = sIdx >= 0 ? callText.slice(0, sIdx) : callText;
+          setAiResult(accumulated + shown);
+        }
+
+        const match = callText.match(STOP_RE);
+        if (match) {
+          stopReason = match[1];
+          callText = callText.slice(0, match.index);
+        }
+
+        accumulated += callText;
         setAiResult(accumulated);
+
+        if (stopReason === "end_turn") {
+          complete = true;
+        } else if (callText.trim().length === 0) {
+          // No new content this round — stop to avoid an infinite loop.
+          complete = true;
+        }
+        // Otherwise (max_tokens, or a timeout with no sentinel): loop and continue.
       }
 
       if (!accumulated) return;
